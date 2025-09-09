@@ -176,49 +176,58 @@ print(f"Squares: {squares}")
   }
 
   void _initializePyodide() {
-    // Load Pyodide from CDN
-    js.context.callMethod('eval', [
-      '''
-      if (typeof window.pyodide === 'undefined') {
-        window.pyodidePromise = new Promise((resolve) => {
-          const script = document.createElement('script');
-          script.src = 'https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js';
-          script.onload = async () => {
-            window.pyodide = await loadPyodide({
-              indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.23.4/full/'
-            });
-            
-            // Override Python's print function
-            window.pyodide.runPython(`
-              import sys
-              import js
-              
-              def custom_print(*args, **kwargs):
-                  message = ' '.join(str(arg) for arg in args)
-                  js.globalContext.callMethod('updateOutput', [message])
-                  # Keep original print for console
-                  original_print = getattr(sys.stdout, 'write', lambda x: None)
-                  original_print(message + '\\\\n')
-              
-              # Replace built-in print
-              builtins = pyodide.pyimport('builtins')
-              builtins.print = custom_print
-            `);
-            
-            resolve(window.pyodide);
-          };
-          document.head.appendChild(script);
-        });
+    // Set up output callback globally
+    js.context.callMethod('eval', ['''
+    window.updateOutput = function(message) {
+      if (window.flutterOutputPort) {
+        window.flutterOutputPort(message);
       }
-      ''',
-    ]);
+    };
+  ''']);
 
-    // Set up output callback
-    js.context['updateOutput'] = (String message) {
-      setState(() {
-        _output += '$message\n';
+    // Bind Dart callback to JS
+    js.context['flutterOutputPort'] = (String message) {
+      // Safely update the output
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        setState(() {
+          _output += '$message\n';
+        });
       });
     };
+
+    // Load Pyodide from CDN
+    js.context.callMethod('eval', [r'''
+    if (typeof window.pyodide === 'undefined') {
+      window.pyodidePromise = new Promise((resolve) => {
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js';
+        script.onload = async () => {
+          window.pyodide = await loadPyodide({
+            indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.23.4/full/'
+          });
+
+          // Override Python's print
+          window.pyodide.runPython(`
+            import sys
+            import js
+
+            class OutputCatcher:
+                def write(self, message):
+                    js.updateOutput(message)
+
+                def flush(self):
+                    pass
+
+            sys.stdout = OutputCatcher()
+            sys.stderr = OutputCatcher()
+          `);
+
+          resolve(window.pyodide);
+        };
+        document.head.appendChild(script);
+      });
+    }
+  ''']);
   }
 
   Future<void> _runCode() async {
