@@ -180,6 +180,7 @@ class IDEScreen extends StatefulWidget {
 
 class _IDEScreenState extends State<IDEScreen> {
   late CodeController _codeController;
+  FocusNode? _editorFocusNode;
   late CodeHistory _codeHistory;
   String _output = '';
   bool _isLoading = false;
@@ -205,6 +206,7 @@ class _IDEScreenState extends State<IDEScreen> {
   @override
   void initState() {
     super.initState();
+    _editorFocusNode = FocusNode();
     _codeHistory = CodeHistory();
     _initializeCodeController();
     _initializePyodide();
@@ -392,21 +394,23 @@ print("Hello, Python!")''';
   }
 
   void _selectAll() {
-    // Focus the text field first
-    _codeController.selection = TextSelection(
-      baseOffset: 0,
-      extentOffset: _codeController.text.length,
-    );
+    final textLength = _codeController.text.length;
 
-    setState(() {
-      _isAllSelected = true;
-    });
+    // First, request focus to ensure the text field is active
+    _editorFocusNode?.requestFocus();
 
-    _showSnackBar('All text selected');
-
-    // Force a rebuild to ensure the selection is properly displayed
+    // Then set the selection after a brief delay to ensure focus is established
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      setState(() {});
+      _codeController.selection = TextSelection(
+        baseOffset: 0,
+        extentOffset: textLength,
+      );
+
+      setState(() {
+        _isAllSelected = true;
+      });
+
+      _showSnackBar('All text selected');
     });
   }
 
@@ -645,6 +649,7 @@ print("Hello, Python!")''';
   void dispose() {
     _codeController.removeListener(_onTextChanged);
     _codeController.dispose();
+    _editorFocusNode?.dispose();
     super.dispose();
   }
 
@@ -757,6 +762,7 @@ print("Hello, Python!")''';
                     child: Focus(
                       child: CodeField(
                         controller: _codeController,
+                        focusNode: _editorFocusNode,
                         expands: true,
                         maxLines: null,
                         minLines: null,
@@ -770,7 +776,6 @@ print("Hello, Python!")''';
                         ),
                         selectionControls: MaterialTextSelectionControls(),
                         onChanged: (value) {
-                          // Handle text changes including backspace for selected text
                           if (_isAllSelected && value.isEmpty) {
                             setState(() {
                               _isAllSelected = false;
