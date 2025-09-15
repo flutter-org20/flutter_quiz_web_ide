@@ -14,6 +14,7 @@ class ToolBar extends StatelessWidget {
   final VoidCallback onToggleSpecialChars;
   final VoidCallback onRun;
   final VoidCallback onClear;
+  final VoidCallback onClearEditor; // New callback for clearing editor
   final Function(String) onSpecialCharInsert;
   final bool canUndo;
   final bool canRedo;
@@ -33,6 +34,7 @@ class ToolBar extends StatelessWidget {
     required this.onToggleSpecialChars,
     required this.onRun,
     required this.onClear,
+    required this.onClearEditor, // Added to constructor
     required this.onSpecialCharInsert,
     required this.canUndo,
     required this.canRedo,
@@ -90,6 +92,14 @@ class ToolBar extends StatelessWidget {
                 onPressed: onPaste,
                 tooltip: 'Paste (Ctrl+V)',
                 color: Colors.orange,
+              ),
+              // New Clear Editor button
+              _buildToolbarButton(
+                icon: Icons.clear,
+                label: 'Clear Editor',
+                onPressed: onClearEditor,
+                tooltip: 'Clear Editor Content',
+                color: Colors.red[300],
               ),
             ]),
 
@@ -150,7 +160,7 @@ class ToolBar extends StatelessWidget {
               ),
             ]),
 
-            // Execution Controls
+            // Execution Controls - Updated with both clear buttons
             _buildButtonGroup('Execute', [
               _buildToolbarButton(
                 icon: Icons.play_arrow,
@@ -162,7 +172,7 @@ class ToolBar extends StatelessWidget {
               ),
               _buildToolbarButton(
                 icon: Icons.clear_all,
-                label: 'Clear',
+                label: 'Clear Output',
                 onPressed: onClear,
                 tooltip: 'Clear Output Console',
                 color: Colors.red[400],
@@ -215,7 +225,7 @@ class ToolBar extends StatelessWidget {
                   SpecialChar('<=', 'Less or equal'),
                   SpecialChar('>=', 'Greater or equal'),
                   SpecialChar('//', 'Floor division'),
-                  SpecialChar('', 'Power/Exponent'),
+                  SpecialChar('**', 'Power/Exponent'),
                   SpecialChar('+=', 'Add and assign'),
                   SpecialChar('-=', 'Subtract and assign'),
                   SpecialChar('*=', 'Multiply and assign'),
@@ -252,7 +262,7 @@ class ToolBar extends StatelessWidget {
                   SpecialChar("\\'", 'Escaped apostrophe'),
                   SpecialChar('# ', 'Comment'),
                   SpecialChar('_', 'Underscore/Private'),
-                  SpecialChar('', 'Dunder prefix'),
+                  SpecialChar('__', 'Dunder prefix'),
                   SpecialChar('...', 'Ellipsis'),
                   SpecialChar('None', 'None value'),
                 ]),
