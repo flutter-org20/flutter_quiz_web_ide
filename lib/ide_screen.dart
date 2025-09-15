@@ -23,11 +23,11 @@ class CodeHistory {
     }
 
     _history.add(state);
-    _currentIndex++;
+    _currentIndex = _history.length - 1;
 
     if (_history.length > 50) {
       _history.removeAt(0);
-      _currentIndex--;
+      _currentIndex = _history.length - 1;
     }
   }
 
@@ -36,7 +36,7 @@ class CodeHistory {
       _currentIndex--;
       return _history[_currentIndex];
     }
-    return null;
+    return _history.isNotEmpty ? _history.first : null; // ✅ stay at first state
   }
 
   String? redo() {
@@ -44,11 +44,11 @@ class CodeHistory {
       _currentIndex++;
       return _history[_currentIndex];
     }
-    return null;
+    return _history.isNotEmpty ? _history.last : null; // ✅ stay at last state
   }
 
   bool canUndo() => _currentIndex > 0;
-  bool canRedo() => _currentIndex < _history.length - 1;
+  bool canRedo() => _currentIndex >= 0 && _currentIndex < _history.length - 1;
 
   void clear() {
     _history.clear();
@@ -191,6 +191,8 @@ class _IDEScreenState extends State<IDEScreen> {
   String _lastText = '';
   String _currentTheme = 'monokai';
   String _currentFileName = 'untitled.py';
+  bool _preventHistoryUpdate =
+      false; // Flag to prevent history updates during undo/redo
 
   // ✅ Fixed: Ensure type is Map<String, TextStyle>
   final Map<String, Map<String, TextStyle>> _themes = {
@@ -232,9 +234,16 @@ print(f"Result: {result}")
   }
 
   void _onTextChanged() {
+    // Safety check for valid selection bounds
+    final textLength = _codeController.text.length;
+    final selection = _codeController.selection;
+
+    // Clamp selection offsets to valid range
+    final baseOffset = selection.baseOffset.clamp(0, textLength);
+    final extentOffset = selection.extentOffset.clamp(0, textLength);
+
     final isCurrentlyAllSelected =
-        _codeController.selection.baseOffset == 0 &&
-        _codeController.selection.extentOffset == _codeController.text.length;
+        baseOffset == 0 && extentOffset == textLength;
 
     if (isCurrentlyAllSelected != _isAllSelected) {
       setState(() {
@@ -242,7 +251,8 @@ print(f"Result: {result}")
       });
     }
 
-    if (_codeController.text != _lastText) {
+    // Only add to history if not during undo/redo operations
+    if (!_preventHistoryUpdate && _codeController.text != _lastText) {
       _codeHistory.addState(_codeController.text);
       _lastText = _codeController.text;
       setState(() {});
@@ -382,12 +392,22 @@ print("Hello, Python!")''';
   }
 
   void _selectAll() {
+    // Focus the text field first
     _codeController.selection = TextSelection(
       baseOffset: 0,
       extentOffset: _codeController.text.length,
     );
-    setState(() => _isAllSelected = true);
+
+    setState(() {
+      _isAllSelected = true;
+    });
+
     _showSnackBar('All text selected');
+
+    // Force a rebuild to ensure the selection is properly displayed
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      setState(() {});
+    });
   }
 
   void _copyCode() {
@@ -420,25 +440,39 @@ print("Hello, Python!")''';
   }
 
   void _undo() {
+    if (!_codeHistory.canUndo()) return;
     final previousState = _codeHistory.undo();
     if (previousState != null) {
+      _preventHistoryUpdate = true;
       setState(() {
         _codeController.text = previousState;
+        _codeController.selection = TextSelection.collapsed(
+          offset: previousState.length,
+        );
+
         _lastText = previousState;
         _isAllSelected = false;
       });
+      _preventHistoryUpdate = false;
       _showSnackBar('Undo successful');
     }
   }
 
   void _redo() {
+    if (!_codeHistory.canRedo()) return;
     final nextState = _codeHistory.redo();
     if (nextState != null) {
+      _preventHistoryUpdate = true;
       setState(() {
         _codeController.text = nextState;
+        _codeController.selection = TextSelection.collapsed(
+          offset: nextState.length,
+        );
+
         _lastText = nextState;
         _isAllSelected = false;
       });
+      _preventHistoryUpdate = false;
       _showSnackBar('Redo successful');
     }
   }
@@ -720,18 +754,29 @@ print("Hello, Python!")''';
                 children: [
                   CodeTheme(
                     data: CodeThemeData(styles: _themes[_currentTheme]!),
-                    child: CodeField(
-                      controller: _codeController,
-                      expands: true,
-                      maxLines: null,
-                      minLines: null,
-                      textStyle: TextStyle(
-                        fontFamily: 'monospace',
-                        fontSize: _fontSize,
-                      ),
-                      lineNumberStyle: const LineNumberStyle(
-                        textStyle: TextStyle(color: Colors.grey),
-                        margin: 8,
+                    child: Focus(
+                      child: CodeField(
+                        controller: _codeController,
+                        expands: true,
+                        maxLines: null,
+                        minLines: null,
+                        textStyle: TextStyle(
+                          fontFamily: 'monospace',
+                          fontSize: _fontSize,
+                        ),
+                        lineNumberStyle: const LineNumberStyle(
+                          textStyle: TextStyle(color: Colors.grey),
+                          margin: 8,
+                        ),
+                        selectionControls: MaterialTextSelectionControls(),
+                        onChanged: (value) {
+                          // Handle text changes including backspace for selected text
+                          if (_isAllSelected && value.isEmpty) {
+                            setState(() {
+                              _isAllSelected = false;
+                            });
+                          }
+                        },
                       ),
                     ),
                   ),
