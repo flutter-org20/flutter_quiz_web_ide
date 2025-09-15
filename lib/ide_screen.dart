@@ -393,6 +393,45 @@ print("Hello, Python!")''';
     });
   }
 
+  void _clearEditor() {
+    // Show confirmation dialog before clearing
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Clear Editor'),
+          backgroundColor: Colors.grey[800],
+          content: const Text(
+            'Are you sure you want to clear all editor content? This action cannot be undone.',
+            style: TextStyle(color: Colors.white),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                setState(() {
+                  _codeController.text = '';
+                  _lastText = '';
+                  _codeHistory.clear();
+                  _codeHistory.addState('');
+                  _isAllSelected = false;
+                  _currentFileName = 'untitled.py';
+                });
+                Navigator.of(context).pop();
+                _showSnackBar('Editor cleared');
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+              child: const Text('Clear'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   void _selectAll() {
     final textLength = _codeController.text.length;
 
@@ -737,6 +776,7 @@ print("Hello, Python!")''';
             fontSize: _fontSize,
             onSpecialCharInsert: _insertSpecialChar,
             onClear: _clearOutput,
+            onClearEditor: _clearEditor,
             onSelectAll: _selectAll,
             onCopy: _copyCode,
             onPaste: _pasteCode,
