@@ -296,14 +296,14 @@ class ToolBar extends StatelessWidget {
           // Buttons row
           Row(
             children:
-                buttons
-                    .map(
-                      (button) => Padding(
-                        padding: const EdgeInsets.only(right: 6),
-                        child: button,
-                      ),
-                    )
-                    .toList(),
+            buttons
+                .map(
+                  (button) => Padding(
+                padding: const EdgeInsets.only(right: 6),
+                child: button,
+              ),
+            )
+                .toList(),
           ),
         ],
       ),
@@ -321,11 +321,11 @@ class ToolBar extends StatelessWidget {
     bool isDisabled = false,
   }) {
     final effectiveColor =
-        isDisabled
-            ? Colors.grey[600]
-            : isActive
-            ? Colors.blue
-            : color ?? const Color(0xFF404040);
+    isDisabled
+        ? Colors.grey[600]
+        : isActive
+        ? Colors.blue
+        : color ?? const Color(0xFF404040);
 
     return Tooltip(
       message: tooltip ?? label,
@@ -334,23 +334,23 @@ class ToolBar extends StatelessWidget {
           borderRadius: BorderRadius.circular(6),
           border: Border.all(
             color:
-                isActive
-                    ? Colors.blue
-                    : isPrimary
-                    ? Colors.green
-                    : Colors.transparent,
+            isActive
+                ? Colors.blue
+                : isPrimary
+                ? Colors.green
+                : Colors.transparent,
             width: isActive || isPrimary ? 1.5 : 0,
           ),
           boxShadow:
-              isPrimary
-                  ? [
-                    BoxShadow(
-                      color: Colors.green.withOpacity(0.3),
-                      blurRadius: 4,
-                      offset: const Offset(0, 2),
-                    ),
-                  ]
-                  : null,
+          isPrimary
+              ? [
+            BoxShadow(
+              color: Colors.green.withOpacity(0.3),
+              blurRadius: 4,
+              offset: const Offset(0, 2),
+            ),
+          ]
+              : null,
         ),
         child: Material(
           color: Colors.transparent,
@@ -370,9 +370,9 @@ class ToolBar extends StatelessWidget {
                     icon,
                     size: 16,
                     color:
-                        isDisabled
-                            ? Colors.grey[600]
-                            : effectiveColor ?? Colors.white,
+                    isDisabled
+                        ? Colors.grey[600]
+                        : effectiveColor ?? Colors.white,
                   ),
                   const SizedBox(width: 4),
                   Text(
@@ -381,9 +381,9 @@ class ToolBar extends StatelessWidget {
                       fontSize: 11,
                       fontWeight: FontWeight.w500,
                       color:
-                          isDisabled
-                              ? Colors.grey[600]
-                              : effectiveColor ?? Colors.white,
+                      isDisabled
+                          ? Colors.grey[600]
+                          : effectiveColor ?? Colors.white,
                     ),
                   ),
                 ],
@@ -396,10 +396,10 @@ class ToolBar extends StatelessWidget {
   }
 
   Widget _buildSpecialCharGroup(
-    String title,
-    Color titleColor,
-    List<SpecialChar> chars,
-  ) {
+      String title,
+      Color titleColor,
+      List<SpecialChar> chars,
+      ) {
     return Container(
       margin: const EdgeInsets.only(right: 24),
       child: Column(
@@ -435,9 +435,9 @@ class ToolBar extends StatelessWidget {
             spacing: 4,
             runSpacing: 4,
             children:
-                chars
-                    .map((char) => _buildSpecialCharButton(char, titleColor))
-                    .toList(),
+            chars
+                .map((char) => _buildSpecialCharButton(char, titleColor))
+                .toList(),
           ),
         ],
       ),
