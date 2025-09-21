@@ -1,6 +1,8 @@
 // --- Globals ---
-let monacoEditor;
+let monacoEditors = {}; // Object to store editor instances
 let pyodide;
+let monacoLoaded = false;
+let monacoLoadPromise = null;
 
 // Helper function to clean common invalid characters from code
 function sanitizeCode(code) {
@@ -44,236 +46,171 @@ black.format_str(source_code, mode=mode)
   }
 }
 
-// --- Monaco Interop ---
-window.monacoInterop = {
-  init: (containerId, initialCode, theme, fontSize, onContentChanged) => {
-    return new Promise((resolve, reject) => {
+// Function to initialize Monaco only once
+function loadMonaco() {
+  if (!monacoLoadPromise) {
+    monacoLoadPromise = new Promise((resolve) => {
       require.config({
         paths: { 'vs': 'https://unpkg.com/monaco-editor@0.41.0/min/vs' }
       });
 
       require(['vs/editor/editor.main'], () => {
-        try {
-          monacoEditor = monaco.editor.create(document.getElementById(containerId), {
-            value: initialCode,
-            language: 'python',
-            theme: theme,
-            fontSize: fontSize,
-            automaticLayout: true,
-            formatOnPaste: true,
-            formatOnType: false, // Disable auto-format on type for better performance
-            wordWrap: 'on',
-            minimap: { enabled: false },
-            scrollBeyondLastLine: false,
-            renderLineHighlight: 'line',
-            selectOnLineNumbers: true
-          });
-
-          // Set up content change listener
-          monacoEditor.onDidChangeModelContent(() => {
-            onContentChanged(monacoEditor.getValue());
-          });
-
-          // Register the Python formatter
-          const disposable = monaco.languages.registerDocumentFormattingEditProvider('python', {
-            async provideDocumentFormattingEdits(model, options, token) {
-              try {
-                console.log('Formatting document...');
-                const originalCode = model.getValue();
-                console.log('Original code length:', originalCode.length);
-
-                // Check if Pyodide is ready
-                if (!pyodide) {
-                  console.error('Pyodide not available for formatting');
-                  return [];
-                }
-
-                const formattedCode = await formatPythonCodeWithBlack(originalCode);
-                console.log('Formatted code length:', formattedCode.length);
-
-                if (formattedCode !== originalCode) {
-                  console.log('Code was formatted, applying changes');
-                  return [{
-                    range: model.getFullModelRange(),
-                    text: formattedCode,
-                  }];
-                }
-                console.log('No formatting changes needed');
-                return []; // No changes needed
-              } catch (error) {
-                console.error('Formatting error details:', error.message || error);
-                console.error('Full error object:', error);
-                return []; // Return empty array on error
-              }
-            }
-          });
-
-          // Store the disposable for cleanup if needed
-          monacoEditor._formatterDisposable = disposable;
-
-          console.log('Monaco Editor initialized successfully');
-          resolve();
-        } catch (error) {
-          console.error('Error initializing Monaco Editor:', error);
-          reject(error);
-        }
-      }, (error) => {
-        console.error('Error loading Monaco Editor modules:', error);
-        reject(error);
+        monacoLoaded = true;
+        resolve();
       });
     });
-  },
+  }
+  return monacoLoadPromise;
+}
 
-  formatDocument: async () => {
-    if (!monacoEditor) {
-      console.error('Monaco Editor not initialized');
-      return false;
-    }
+console.log('Monaco Interop JavaScript loaded');
 
+// --- Monaco Interop ---
+window.monacoInterop = {
+  init: async (containerId, initialCode, theme, fontSize, onContentChanged) => {
+    console.log('Monaco init called for:', containerId);
     try {
-      console.log('Triggering format document action...');
-      await monacoEditor.getAction('editor.action.formatDocument').run();
-      return true;
-    } catch (error) {
-      console.error('Error formatting document:', error);
-      return false;
-    }
-  },
-
-  // Alternative manual formatting method
-  formatDocumentManually: async () => {
-    if (!monacoEditor) {
-      console.error('Monaco Editor not initialized');
-      return false;
-    }
-
-    try {
-      const originalCode = monacoEditor.getValue();
-      console.log('Manual formatting...', originalCode.length, 'characters');
-      const formattedCode = await formatPythonCodeWithBlack(originalCode);
-
-      if (formattedCode !== originalCode) {
-        monacoEditor.setValue(formattedCode);
-        console.log('Code formatted successfully');
-        return true;
-      } else {
-        console.log('No formatting changes needed');
-        return true;
+      // Check if DOM element exists
+      const container = document.getElementById(containerId);
+      if (!container) {
+        throw new Error(`DOM element with ID '${containerId}' not found`);
       }
-    } catch (error) {
-      console.error('Error in manual formatting:', error);
-      return false;
-    }
-  },
+      console.log('DOM element found for:', containerId);
 
-  getValue: () => monacoEditor?.getValue() || '',
-
-  setValue: (content) => {
-    if (monacoEditor) {
-      monacoEditor.setValue(sanitizeCode(content));
-    }
-  },
-
-  updateOptions: (theme, fontSize) => {
-    if (monacoEditor) {
-      monacoEditor.updateOptions({ theme, fontSize });
-    }
-  },
-
-  selectAll: () => {
-    if (monacoEditor) {
-      monacoEditor.getAction('editor.action.selectAll').run();
-    }
-  },
-
-  insertText: (text) => {
-    if (monacoEditor) {
-      const sanitizedText = sanitizeCode(text);
-      monacoEditor.executeEdits('paste', [{
-        range: monacoEditor.getSelection(),
-        text: sanitizedText,
-      }]);
-    }
-  },
-
-  copySelection: () => {
-    if (monacoEditor) {
-      const selection = monacoEditor.getModel().getValueInRange(monacoEditor.getSelection());
-      if (selection && navigator.clipboard) {
-        navigator.clipboard.writeText(selection);
+      // Ensure Monaco is loaded first
+      if (!monacoLoaded) {
+        await loadMonaco();
       }
+
+      const editor = monaco.editor.create(container, {
+        value: initialCode,
+        language: 'python',
+        theme: theme,
+        fontSize: fontSize,
+        automaticLayout: true,
+        formatOnPaste: true,
+        formatOnType: false,
+        wordWrap: 'on',
+        minimap: { enabled: false },
+        scrollBeyondLastLine: false,
+        renderLineHighlight: 'line',
+        selectOnLineNumbers: true
+      });
+
+      // Store the editor instance
+      monacoEditors[containerId] = editor;
+
+      // Set up content change listener
+      editor.onDidChangeModelContent(() => {
+        onContentChanged(editor.getValue());
+      });
+
+      return editor;
+    } catch (error) {
+      console.error('Error creating Monaco editor:', error);
+      throw error;
     }
   },
 
-  // Utility methods for debugging
-  isReady: () => !!monacoEditor,
-  getModel: () => monacoEditor?.getModel(),
+  getValue: (containerId) => {
+    const editor = monacoEditors[containerId];
+    return editor ? editor.getValue() : '';
+  },
 
-  // Method to check if formatting is available
-  canFormat: () => {
-    return !!(monacoEditor && pyodide);
+  setValue: (containerId, content) => {
+    const editor = monacoEditors[containerId];
+    if (editor) {
+      editor.setValue(content);
+    }
+  },
+
+  updateOptions: (containerId, theme, fontSize) => {
+    const editor = monacoEditors[containerId];
+    if (editor) {
+      editor.updateOptions({ theme, fontSize });
+    }
+  },
+
+  formatDocument: (containerId) => {
+    const editor = monacoEditors[containerId];
+    if (editor) {
+      editor.getAction('editor.action.formatDocument').run();
+    }
+  },
+
+  selectAll: (containerId) => {
+    const editor = monacoEditors[containerId];
+    if (editor) {
+      editor.setSelection(editor.getModel().getFullModelRange());
+    }
+  },
+
+  insertText: (containerId, text) => {
+    const editor = monacoEditors[containerId];
+    if (editor) {
+      editor.trigger('keyboard', 'type', { text });
+    }
+  },
+
+  copySelection: (containerId) => {
+    const editor = monacoEditors[containerId];
+    if (editor) {
+      const selection = editor.getSelection();
+      const text = editor.getModel().getValueInRange(selection);
+      navigator.clipboard.writeText(text);
+    }
   }
 };
 
 // --- Pyodide Interop ---
 window.pyodideInterop = {
-  init: async (onOutput) => {
-    try {
-      pyodide = await loadPyodide();
+  init: (onOutput) => {
+    return new Promise(async (resolve, reject) => {
+      try {
+        console.log('Loading Pyodide...');
+        pyodide = await loadPyodide();
+        
+        // Set up proper output redirection using the modern Pyodide API
+        pyodide.setStdout({
+          batched: (text) => {
+            console.log('Python output:', text);
+            onOutput(text);
+          }
+        });
+        
+        pyodide.setStderr({
+          batched: (text) => {
+            console.error('Python error:', text);
+            onOutput(text);
+          }
+        });
 
-      // [MODIFIED] Temporarily set empty handlers to silence package loading
-      pyodide.setStdout({ batched: () => {} });
-      pyodide.setStderr({ batched: () => {} });
-
-      // [MODIFIED] All manual onOutput calls are commented out for a silent init
-      // onOutput('Initializing Python environment...\n');
-      await pyodide.loadPackage(['micropip', 'typing-extensions']);
-
-      const micropip = pyodide.pyimport('micropip');
-
-      // onOutput('Installing Black formatter and dependencies...\n');
-      await micropip.install(['black==23.9.1', 'click==8.1.7']);
-
-      // [MODIFIED] Test the installation silently without printing the version
-      await pyodide.runPythonAsync(`import black`);
-
-      // [MODIFIED] Restore the real output handlers for user code execution
-      pyodide.setStdout({ batched: (msg) => onOutput(msg + '\n') });
-      pyodide.setStderr({ batched: (msg) => onOutput(msg + '\n') });
-
-      // onOutput('Ready to execute Python code.\n');
-      return 'Pyodide Initialized Successfully.';
-
-    } catch (error) {
-      console.error('Pyodide initialization error:', error);
-      // Restore handlers even on error so subsequent messages can be shown
-      pyodide.setStdout({ batched: (msg) => onOutput(msg + '\n') });
-      pyodide.setStderr({ batched: (msg) => onOutput(msg + '\n') });
-      onOutput(`Error: Pyodide failed to initialize.\n${error}\n`);
-      return `Pyodide initialization failed: ${error}`;
-    }
+        console.log('Installing basic packages...');
+        // Only load essential packages, skip black for now
+        await pyodide.loadPackage(['micropip']);
+        
+        console.log('Pyodide ready for Python execution!');
+        resolve('Pyodide initialized successfully!');
+      } catch (err) {
+        console.error('Error initializing Pyodide:', err);
+        reject(err.toString());
+      }
+    });
   },
 
   runCode: async (code) => {
-    if (!pyodide) return "Pyodide not initialized.";
-
-    const sanitizedCode = sanitizeCode(code);
+    if (!pyodide) {
+      throw new Error('Pyodide not initialized');
+    }
 
     try {
-      await pyodide.runPythonAsync(sanitizedCode);
+      await pyodide.runPythonAsync(code);
       return null; // No error
-    } catch (error) {
-      return String(error);
+    } catch (err) {
+      return err.message; // Return error message
     }
-  },
-
-  // Method to test if Black is available (no changes needed here)
-  testBlack: async () => {
-    // ... (rest of the function is unchanged)
-  },
-
-  // Simple method to check Pyodide status (no changes needed here)
-  getStatus: () => {
-    // ... (rest of the function is unchanged)
   }
 };
+
+console.log('monacoInterop object created:', window.monacoInterop);
+console.log('pyodideInterop object created:', window.pyodideInterop);
