@@ -31,6 +31,7 @@ class _IDEScreenState extends State<IDEScreen> {
   bool _preventHistoryUpdate = false;
 
   String? _currentRunningEditorId;
+  int numberOfStudents = 4;
   final List<String> _monacoElementIds = [
     'monaco-editor-container-1',
     'monaco-editor-container-2',
@@ -153,7 +154,7 @@ print(hello())
     // Shorter wait since DOM elements are now always present
     await Future.delayed(const Duration(milliseconds: 500));
 
-    for (int i = 0; i < _monacoDivIds.length; i++) {
+    for (int i = 0; i < 4; i++) {
       final id = _monacoDivIds[i];
       _lastText[id] = initialCode;
       _codeHistories[id]?.addState(initialCode);
@@ -197,6 +198,27 @@ print(hello())
     if (mounted) {
       setState(() => _monacoInitialized = true);
     }
+  }
+
+  Future<void> _cleanupEditors() async {
+    for (int i = 0; i < 4; i++) {
+      try {
+        await interop.destroyEditor(_monacoDivIds[i]);
+      } catch (error) {
+        print('Error destroying editor ${_monacoDivIds[i]}: $error');
+      }
+    }
+  }
+
+  Future<void> _reinitializeEditors() async {
+    setState(() {
+      _monacoInitialized = false;
+    });
+
+    await _cleanupEditors();
+
+    await Future.delayed(const Duration(milliseconds: 100));
+    _setupMonacoEditor();
   }
 
   void _onContentChanged(String content, String editorId) {
@@ -521,10 +543,42 @@ print(hello())
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Python Web IDE - ${_currentFileNames[_monacoDivIds[0]] ?? 'untitled.py'}',
+          'Python Web IDE - $numberOfStudents Student${numberOfStudents == 1 ? '' : 's'}',
         ),
         backgroundColor: Colors.grey[900],
         actions: [
+          PopupMenuButton<int>(
+            onSelected: (value) async {
+              setState(() {
+                numberOfStudents = value;
+              });
+              await _reinitializeEditors();
+            },
+            itemBuilder:
+                (context) => [
+                  const PopupMenuItem<int>(
+                    value: 0,
+                    enabled: false,
+                    child: Text(
+                      'Number of Students',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  const PopupMenuDivider(),
+                  for (int i = 1; i <= 4; i++)
+                    PopupMenuItem<int>(
+                      value: i,
+                      child: Row(
+                        children: [
+                          if (numberOfStudents == i)
+                            const Icon(Icons.check, size: 16),
+                          if (numberOfStudents == i) const SizedBox(width: 8),
+                          Text('$i Student${i == 1 ? '' : 's'}'),
+                        ],
+                      ),
+                    ),
+                ],
+          ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.palette),
             tooltip: 'Change Theme',
@@ -605,7 +659,7 @@ print(hello())
           Expanded(
             child: Row(
               children: [
-                for (int i = 0; i < _monacoElementIds.length; i++)
+                for (int i = 0; i < numberOfStudents; i++)
                   Expanded(
                     child: Column(
                       children: [

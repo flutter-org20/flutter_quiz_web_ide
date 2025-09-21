@@ -162,6 +162,20 @@ window.monacoInterop = {
   }
 };
 
+window.destroyMonacoEditor = function(elementId) {
+  if(monacoEditors && monacoEditors[elementId]) {
+    // Dispose the Monaco editor
+    monacoEditors[elementId].dispose();
+    delete monacoEditors[elementId];
+    
+    // Also clear the DOM container
+    const container = document.getElementById(elementId);
+    if (container) {
+      container.innerHTML = '';
+    }
+  }
+}
+
 // --- Pyodide Interop ---
 window.pyodideInterop = {
   init: (onOutput) => {

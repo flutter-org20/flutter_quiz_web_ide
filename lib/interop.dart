@@ -100,3 +100,14 @@ Future<String?> runPyodideCode(String code) {
     return (value as JSString?)?.toDart;
   });
 }
+
+@JS('destroyMonacoEditor')
+external void _destroyMonacoEditor(String elementId);
+
+Future<void> destroyEditor(String elementId) async {
+  try {
+    _destroyMonacoEditor(elementId);
+  } catch (e) {
+    print('Failed to destroy editor $elementId: $e');
+  }
+}
