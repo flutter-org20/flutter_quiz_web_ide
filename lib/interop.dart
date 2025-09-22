@@ -5,67 +5,151 @@ import 'dart:js_interop';
 typedef ContentChangedCallback = void Function(String content);
 typedef PythonOutputCallback = void Function(String message);
 
-
 // --- Monaco Interop Bindings ---
 
-// Note: The @JS annotation now comes from 'dart:js_interop'
 @JS('monacoInterop.init')
-// Private external function using the new JS types
-external void _initMonaco(String containerId, String initialCode, String theme,
-    double fontSize, JSFunction onContentChanged);
+external JSPromise _initMonaco(
+  String containerId,
+  String initialCode,
+  String theme,
+  double fontSize,
+  JSFunction onContentChanged,
+);
 
 // Public wrapper that handles the Dart-to-JS function conversion for you
-void initMonaco(String containerId, String initialCode, String theme,
-    double fontSize, ContentChangedCallback onContentChanged) {
-  _initMonaco(
-      containerId, initialCode, theme, fontSize, onContentChanged.toJS);
+Future<void> initMonaco(
+  String containerId,
+  String initialCode,
+  String theme,
+  double fontSize,
+  ContentChangedCallback onContentChanged,
+) async {
+  try {
+    // Add a check to ensure monacoInterop is available
+    if (!_isMonacoInteropAvailable()) {
+      throw Exception(
+        'monacoInterop is not available. Make sure interop.js is loaded.',
+      );
+    }
+
+    await _initMonaco(
+      containerId,
+      initialCode,
+      theme,
+      fontSize,
+      onContentChanged.toJS,
+    ).toDart;
+  } catch (e) {
+    print('Error initializing Monaco Editor: $e');
+    rethrow;
+  }
+}
+
+@JS('monacoInterop')
+external JSObject? _monacoInteropObject;
+
+bool _isMonacoInteropAvailable() {
+  return _monacoInteropObject != null;
 }
 
 @JS('monacoInterop.getValue')
-external JSString _getMonacoValue();
-String getMonacoValue() => _getMonacoValue().toDart;
+external JSString _getMonacoValue(String containerId);
+String getMonacoValue(String containerId) =>
+    _getMonacoValue(containerId).toDart;
 
 @JS('monacoInterop.setValue')
-external void setMonacoValue(String content);
+external void setMonacoValue(String containerId, String content);
 
 @JS('monacoInterop.updateOptions')
-external void updateMonacoOptions(String theme, double fontSize);
+external void updateMonacoOptions(
+  String containerId,
+  String theme,
+  double fontSize,
+);
 
 @JS('monacoInterop.formatDocument')
-external void formatMonacoDocument();
+external void formatMonacoDocument(String containerId);
 
 @JS('monacoInterop.selectAll')
-external void selectAllInMonaco();
+external void selectAllInMonaco(String containerId);
 
 @JS('monacoInterop.insertText')
-external void insertMonacoText(String text);
+external void insertMonacoText(String containerId, String text);
 
 @JS('monacoInterop.copySelection')
-external void copyMonacoSelection();
-
+external void copyMonacoSelection(String containerId);
 
 // --- Pyodide Interop Bindings ---
 
 @JS('pyodideInterop.init')
-// Private external function returning a JSPromise
 external JSPromise _initPyodide(JSFunction onOutput);
 
 // Public wrapper that handles the Promise and function conversion
 Future<String> initPyodide(PythonOutputCallback onOutput) {
-  // Convert the JSPromise to a Dart Future and the result to a Dart String
-  return _initPyodide(onOutput.toJS)
-      .toDart
-      .then((value) => (value as JSString).toDart);
+  return _initPyodide(
+    onOutput.toJS,
+  ).toDart.then((value) => (value as JSString).toDart);
 }
 
 @JS('pyodideInterop.runCode')
-// Private external function returning a JSPromise
 external JSPromise _runPyodideCode(String code);
 
 // Public wrapper that handles the Promise and converts nullable results
-Future<String?> runPyodideCode(String code) async {
-  final promise = _runPyodideCode(code);
-  final result = await promise.toDart; // result is a JSObject?
-  // Use dartify to safely convert JS null/undefined/String to a Dart String?
-  return result?.dartify() as String?;
+Future<String?> runPyodideCode(String code) {
+  return _runPyodideCode(code).toDart.then((value) {
+    return (value as JSString?)?.toDart;
+  });
+}
+
+@JS('destroyMonacoEditor')
+external void _destroyMonacoEditor(String elementId);
+
+Future<void> destroyEditor(String elementId) async {
+  try {
+    _destroyMonacoEditor(elementId);
+  } catch (e) {
+    print('Failed to destroy editor $elementId: $e');
+  }
+}
+
+@JS('insertTextAtCursor')
+external void _insertTextAtCursor(String editorId, String text);
+
+@JS('deleteCharacterBeforeCursor')
+external void _deleteCharacterBeforeCursor(String editorId);
+
+Future<void> insertTextAtCursor(String editorId, String text) async {
+  try {
+    _insertTextAtCursor(editorId, text);
+  } catch (e) {
+    print('Failed to insert text in editor $editorId: $e');
+  }
+}
+
+Future<void> deleteCharacterBeforeCursor(String editorId) async {
+  try {
+    _deleteCharacterBeforeCursor(editorId);
+  } catch (e) {
+    print('Failed to delete character in editor $editorId: $e');
+  }
+}
+
+// Alias for setMonacoValue to match the undo/redo functionality
+Future<void> setEditorContent(String editorId, String content) async {
+  try {
+    setMonacoValue(editorId, content);
+  } catch (e) {
+    print('Failed to set editor content for $editorId: $e');
+  }
+}
+
+@JS('moveCursor')
+external void _moveCursor(String editorId, String direction);
+
+Future<void> moveCursor(String editorId, String direction) async {
+  try {
+    _moveCursor(editorId, direction);
+  } catch (e) {
+    print('Failed to move cursor in editor $editorId: $e');
+  }
 }

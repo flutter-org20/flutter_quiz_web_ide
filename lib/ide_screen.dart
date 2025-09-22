@@ -1,13 +1,12 @@
-import 'dart:developer';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:python_web_ide/widgets/keyboard_toolbar.dart';
 import 'dart:html' as html;
 import 'dart:ui_web' as ui_web;
-import './widgets/toolbar.dart';
 import 'interop.dart' as interop;
 import 'utils/code_examples.dart';
 import 'utils/code_history.dart';
+import 'dart:math' as math;
 
 class IDEScreen extends StatefulWidget {
   const IDEScreen({super.key});
@@ -17,40 +16,77 @@ class IDEScreen extends StatefulWidget {
 }
 
 class _IDEScreenState extends State<IDEScreen> {
-  late CodeHistory _codeHistory;
   String _output = '';
+  final Map<String, String> _editorOutputs = {};
   bool _isLoading = false;
   final double _editorHeightRatio = 0.6;
   bool _pyodideLoaded = false;
   double _fontSize = 14.0;
-  bool _showSpecialChars = false;
-  String _lastText = '';
+  final Map<String, String> _lastText = {};
+  final Map<String, CodeHistory> _codeHistories = {};
   String _currentTheme = 'vs-dark';
-  String _currentFileName = 'untitled.py';
+  final Map<String, String> _currentFileNames = {};
   bool _preventHistoryUpdate = false;
-  final String _monacoElementId = 'monaco-editor-container';
-  final String _monacoDivId = 'monaco-editor-div'; // Static ID for the div
+
+  String? _currentRunningEditorId;
+  int numberOfStudents = 4;
+  final List<String> _monacoElementIds = [
+    'monaco-editor-container-1',
+    'monaco-editor-container-2',
+    'monaco-editor-container-3',
+    'monaco-editor-container-4',
+  ];
+
+  final List<String> _monacoDivIds = [
+    'monaco-editor-div-1',
+    'monaco-editor-div-2',
+    'monaco-editor-div-3',
+    'monaco-editor-div-4',
+  ];
   bool _monacoInitialized = false;
 
   final List<String> _availableThemes = ['vs-dark', 'vs-light', 'hc-black'];
 
+  final Map<String, bool> _canUndoCache = {};
+  final Map<String, bool> _canRedoCache = {};
+
+  final Map<String, int> _editorRollNumbers = {};
+  final Set<int> _usedRollNumbers = {};
+  final math.Random _random = math.Random();
+
   @override
   void initState() {
     super.initState();
-    _codeHistory = CodeHistory();
 
-    // Use the prefix from dart:ui_web to access the registry
-    ui_web.platformViewRegistry.registerViewFactory(
-      _monacoElementId,
-          (int viewId) => html.DivElement()
-        ..id = _monacoDivId
-        ..style.width = '100%'
-        ..style.height = '100%',
-    );
+    // Initialize state for each editor
+    for (final id in _monacoDivIds) {
+      _codeHistories[id] = CodeHistory();
+      _lastText[id] = '';
+      _currentFileNames[id] = 'untitled.py';
+      _editorOutputs[id] = '';
 
-    // This part remains the same
+      // Initialize undo/redo cache
+      _updateUndoRedoCache(id);
+      _assignRollNumbers();
+    }
+
+    // Register editor views
+    for (var i = 0; i < _monacoElementIds.length; i++) {
+      ui_web.platformViewRegistry.registerViewFactory(
+        _monacoElementIds[i],
+        (int viewId) =>
+            html.DivElement()
+              ..id = _monacoDivIds[i]
+              ..style.width = '100%'
+              ..style.height = '100%',
+      );
+    }
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _setupMonacoEditor();
+      // Reduced delay since DOM elements are now always present
+      Future.delayed(const Duration(milliseconds: 500), () {
+        _setupMonacoEditor();
+      });
       _initializePyodide();
     });
   }
@@ -60,7 +96,14 @@ class _IDEScreenState extends State<IDEScreen> {
     void onOutput(String message) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
-          setState(() => _output += message);
+          setState(() {
+            // Add output to the active editor (you might want to track which editor is active)
+            final activeEditorId =
+                _currentRunningEditorId ??
+                _monacoDivIds[0]; // or track active editor
+            _editorOutputs[activeEditorId] =
+                (_editorOutputs[activeEditorId] ?? '') + message;
+          });
         }
       });
     }
@@ -68,7 +111,18 @@ class _IDEScreenState extends State<IDEScreen> {
     try {
       // Show a loading message in the output
       setState(() => _output = 'Initializing Python environment...\n');
-      String initMessage = await interop.initPyodide(onOutput);
+
+      // Add timeout to prevent hanging
+      String initMessage = await interop
+          .initPyodide(onOutput)
+          .timeout(
+            const Duration(seconds: 30),
+            onTimeout: () {
+              throw Exception(
+                'Pyodide initialization timed out after 30 seconds',
+              );
+            },
+          );
 
       // Update the UI with the success message
       if (mounted) {
@@ -88,193 +142,315 @@ class _IDEScreenState extends State<IDEScreen> {
     const initialCode = '''# Welcome to Python Web IDE!
 # Write your Python code here and click Run.
 
-def greet(name):
-    print(f"Hello, {name}!")
+# Simple example
+x = 2 + 3
+print("Result:", x)
 
-greet("World")
+# Test function
+def hello():
+    return "Hello from Python!"
+
+print(hello())
 ''';
-    _lastText = initialCode;
-    _codeHistory.addState(initialCode);
 
-    interop.initMonaco(
-      _monacoDivId,
-      initialCode,
-      _currentTheme,
-      _fontSize,
-      _onContentChanged, // <-- Pass the function directly
-    );
+    print('Setting up Monaco editors...'); // Debug log
 
-    setState(() => _monacoInitialized = true);
+    // Initialize all editors sequentially to avoid conflicts
+    _initializeEditorsSequentially(initialCode);
   }
 
-  void _onContentChanged(String content) {
+  Future<void> _initializeEditorsSequentially(String initialCode) async {
+    // Shorter wait since DOM elements are now always present
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    for (int i = 0; i < 4; i++) {
+      final id = _monacoDivIds[i];
+      _lastText[id] = initialCode;
+      _codeHistories[id]?.addState(initialCode);
+
+      // Check if DOM element exists before initializing
+      print('Checking DOM element for $id...');
+
+      try {
+        // Wait for DOM element to be available with fewer retries since it should be there
+        var retries = 0;
+        while (retries < 10) {
+          if (html.document.getElementById(id) != null) {
+            print('DOM element found for $id, initializing...');
+            break;
+          }
+          await Future.delayed(const Duration(milliseconds: 100));
+          retries++;
+        }
+
+        if (retries >= 10) {
+          print('DOM element $id not found after waiting ${retries * 100}ms');
+          continue;
+        }
+
+        await interop.initMonaco(
+          id,
+          initialCode,
+          _currentTheme,
+          _fontSize,
+          (content) => _onContentChanged(content, id),
+        );
+        print('Editor initialized: $id');
+
+        // Delay between initializations
+        await Future.delayed(const Duration(milliseconds: 300));
+      } catch (error) {
+        print('Error initializing editor $id: $error');
+      }
+    }
+
+    if (mounted) {
+      setState(() => _monacoInitialized = true);
+    }
+  }
+
+  Future<void> _cleanupEditors() async {
+    for (int i = 0; i < 4; i++) {
+      try {
+        await interop.destroyEditor(_monacoDivIds[i]);
+      } catch (error) {
+        print('Error destroying editor ${_monacoDivIds[i]}: $error');
+      }
+    }
+  }
+
+  Future<void> _reinitializeEditors() async {
+    setState(() {
+      _monacoInitialized = false;
+    });
+
+    await _cleanupEditors();
+
+    await Future.delayed(const Duration(milliseconds: 100));
+    _setupMonacoEditor();
+  }
+
+  void _onContentChanged(String content, String editorId) {
     // Run in post-frame callback to avoid calling setState during a build
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!_preventHistoryUpdate && content != _lastText) {
-        _codeHistory.addState(content);
-        _lastText = content;
+      if (!_preventHistoryUpdate && content != _lastText[editorId]) {
+        _codeHistories[editorId]?.addState(content);
+        _lastText[editorId] = content;
+
+        _updateUndoRedoCache(editorId);
         setState(() {}); // Update Undo/Redo button states
       }
     });
   }
 
-  // In lib/src/ide_screen.dart, inside _IDEScreenState
+  Future<void> _runCode([String? editorId]) async {
+    final id = editorId ?? _monacoDivIds[0];
 
-  Future<void> _runCode() async {
     // Guard against running before Pyodide is loaded
     if (!_pyodideLoaded) {
       _showSnackBar('Python environment is still initializing. Please wait.');
       return;
     }
+    _currentRunningEditorId = id;
 
     setState(() {
-      _output = ''; // Clear previous output
+      _editorOutputs[id] = '';
       _isLoading = true;
     });
 
     try {
-      final code = interop.getMonacoValue();
+      final code = interop.getMonacoValue(id);
       final String? error = await interop.runPyodideCode(code);
 
       if (error != null && mounted) {
-        setState(() => _output += '\n$error');
+        setState(
+          () => _editorOutputs[id] = '${_editorOutputs[id] ?? ''}\n$error',
+        );
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _output += '\nExecution error: $e');
+        setState(
+          () =>
+              _editorOutputs[id] =
+                  '${_editorOutputs[id] ?? ''}\nExecution error: $e',
+        );
       }
     } finally {
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+          _currentRunningEditorId = null;
+        });
       }
     }
   }
 
-  void _updateMonacoWithHistory(String? newState) {
-    if (newState == null) return;
-    _preventHistoryUpdate = true;
+  int _generateUniqueRollNumber() {
+    if (_usedRollNumbers.length >= 40) {
+      return _random.nextInt(40) + 1;
+    }
+    int rollNumber;
+    do {
+      rollNumber = _random.nextInt(40) + 1; // Random number from 1 to 40
+    } while (_usedRollNumbers.contains(rollNumber));
+
+    _usedRollNumbers.add(rollNumber);
+    return rollNumber;
+  }
+
+  void _assignRollNumbers() {
+    _usedRollNumbers.clear();
+    _editorRollNumbers.clear();
+
+    for (int i = 0; i < numberOfStudents; i++) {
+      final editorId = _monacoDivIds[i];
+      _editorRollNumbers[editorId] = _generateUniqueRollNumber();
+    }
+  }
+
+  void _regenerateRollNumber(String editorId) {
+    // Remove current roll number from used set
+    final currentRoll = _editorRollNumbers[editorId];
+    if (currentRoll != null) {
+      _usedRollNumbers.remove(currentRoll);
+    }
+
+    // Generate new unique roll number
+    final newRollNumber = _generateUniqueRollNumber();
+
     setState(() {
-      interop.setMonacoValue(newState);
-      _lastText = newState;
+      _editorRollNumbers[editorId] = newRollNumber;
     });
-    // Use a post-frame callback to ensure the update has been processed by Monaco
-    // before re-enabling history tracking.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+  }
+
+  void _undo(String editorId) {
+    final history = _codeHistories[editorId];
+    if (history?.canUndo() == true) {
+      _preventHistoryUpdate = true;
+      final previousState = history!.undo();
+      if (previousState != null) {
+        interop.setEditorContent(editorId, previousState);
+        _lastText[editorId] = previousState;
+      }
+
+      // Immediately update cache for instant UI response
+      _updateUndoRedoCache(editorId);
+      setState(() {});
+
       _preventHistoryUpdate = false;
-    });
-  }
-
-  void _undo() {
-    if (_codeHistory.canUndo()) {
-      _updateMonacoWithHistory(_codeHistory.undo());
-      _showSnackBar('Undo successful');
     }
   }
 
-  void _redo() {
-    if (_codeHistory.canRedo()) {
-      _updateMonacoWithHistory(_codeHistory.redo());
-      _showSnackBar('Redo successful');
+  void _redo(String editorId) {
+    final history = _codeHistories[editorId];
+    if (history?.canRedo() == true) {
+      _preventHistoryUpdate = true;
+      final nextState = history!.redo();
+      if (nextState != null) {
+        interop.setEditorContent(editorId, nextState);
+        _lastText[editorId] = nextState;
+      }
+
+      // Immediately update cache for instant UI response
+      _updateUndoRedoCache(editorId);
+      setState(() {});
+
+      _preventHistoryUpdate = false;
     }
   }
 
-  void _clearOutput() => setState(() => _output = '');
-
-  void _updateMonacoSettings() {
-    interop.updateMonacoOptions(_currentTheme, _fontSize);
+  void _clearOutput([String? editorId]) {
+    if (editorId != null) {
+      setState(() => _editorOutputs[editorId] = '');
+    } else {
+      // Clear all outputs if no specific editor is specified
+      setState(() {
+        for (final id in _monacoDivIds) {
+          _editorOutputs[id] = '';
+        }
+      });
+    }
   }
 
-  void _zoomIn() {
-    setState(() {
-      _fontSize = (_fontSize + 2).clamp(8.0, 32.0);
-      _updateMonacoSettings();
-    });
+  void _updateMonacoSettings([String? editorId]) {
+    if (editorId != null) {
+      interop.updateMonacoOptions(editorId, _currentTheme, _fontSize);
+    } else {
+      for (final id in _monacoDivIds) {
+        interop.updateMonacoOptions(id, _currentTheme, _fontSize);
+      }
+    }
   }
 
-  void _zoomOut() {
-    setState(() {
-      _fontSize = (_fontSize - 2).clamp(8.0, 32.0);
-      _updateMonacoSettings();
-    });
+  void _updateUndoRedoCache(String editorId) {
+    _canUndoCache[editorId] = _codeHistories[editorId]?.canUndo() ?? false;
+    _canRedoCache[editorId] = _codeHistories[editorId]?.canRedo() ?? false;
   }
 
-  void _selectAll() {
-    interop.selectAllInMonaco();
-    _showSnackBar('All text selected');
-  }
-
-  void _prettifyCode() {
-    interop.formatMonacoDocument();
-    _showSnackBar('Code formatted');
-  }
-
-  void _insertSpecialChar(String char) => interop.insertMonacoText(char);
-
-  void _loadExample(String exampleName) {
+  void _loadExample(String exampleName, [String? editorId]) {
     final exampleCode = CodeExamples.examples[exampleName];
     if (exampleCode != null) {
-      interop.setMonacoValue(exampleCode);
-      _lastText = exampleCode;
-      _codeHistory.clear();
-      _codeHistory.addState(exampleCode);
-      setState(() =>
-      _currentFileName = '${exampleName.toLowerCase().replaceAll(' ', '_')}.py');
-    }
-  }
-
-  void _clearEditor() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Clear Editor'),
-          backgroundColor: Colors.grey[800],
-          content: const Text(
-            'Are you sure you want to clear all editor content? This action cannot be undone.',
-            style: TextStyle(color: Colors.white),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                interop.setMonacoValue('');
-                _lastText = '';
-                _codeHistory.clear();
-                _codeHistory.addState('');
-                setState(() {
-                  _currentFileName = 'untitled.py';
-                });
-                Navigator.of(context).pop();
-                _showSnackBar('Editor cleared');
-              },
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              child: const Text('Clear'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _copyCode() {
-    interop.copyMonacoSelection();
-    _showSnackBar('Code copied to clipboard');
-  }
-
-  void _pasteCode() async {
-    try {
-      final data = await Clipboard.getData(Clipboard.kTextPlain);
-      if (data?.text != null && data!.text!.isNotEmpty) {
-        interop.insertMonacoText(data.text!);
-        _showSnackBar('Code pasted from clipboard');
+      if (editorId != null) {
+        interop.setMonacoValue(editorId, exampleCode);
+        _lastText[editorId] = exampleCode;
+        _codeHistories[editorId]?.clear();
+        _codeHistories[editorId]?.addState(exampleCode);
+        final fileName = '${exampleName.toLowerCase().replaceAll(' ', '_')}.py';
+        setState(() => _currentFileNames[editorId] = fileName);
+      } else {
+        // Load in all editors
+        for (final id in _monacoDivIds) {
+          interop.setMonacoValue(id, exampleCode);
+          _lastText[id] = exampleCode;
+          _codeHistories[id]?.clear();
+          _codeHistories[id]?.addState(exampleCode);
+          final fileName =
+              '${exampleName.toLowerCase().replaceAll(' ', '_')}.py';
+          _currentFileNames[id] = fileName;
+        }
+        setState(() {});
       }
-    } catch (e) {
-      log('Error pasting: $e');
     }
   }
+
+  // void _clearEditor(String? editorId) {
+  //   showDialog(
+  //     context: context,
+  //     builder: (BuildContext context) {
+  //       return AlertDialog(
+  //         title: const Text('Clear Editor'),
+  //         backgroundColor: Colors.grey[800],
+  //         content: const Text(
+  //           'Are you sure you want to clear all editor content? This action cannot be undone.',
+  //           style: TextStyle(color: Colors.white),
+  //         ),
+  //         actions: [
+  //           TextButton(
+  //             onPressed: () => Navigator.of(context).pop(),
+  //             child: const Text('Cancel'),
+  //           ),
+  //           ElevatedButton(
+  //             onPressed: () {
+  //               // Clear all editors
+  //               for (final id in _monacoDivIds) {
+  //                 interop.setMonacoValue(id, '');
+  //                 _lastText[id] = '';
+  //                 _codeHistories[id]?.clear();
+  //                 _codeHistories[id]?.addState('');
+  //                 _currentFileNames[id] = 'untitled.py';
+  //               }
+  //               setState(() {});
+  //               Navigator.of(context).pop();
+  //               _showSnackBar('Editors cleared');
+  //             },
+  //             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+  //             child: const Text('Clear'),
+  //           ),
+  //         ],
+  //       );
+  //     },
+  //   );
+  // }
 
   void _changeTheme(String themeName) {
     setState(() {
@@ -284,22 +460,32 @@ greet("World")
     _showSnackBar('Theme changed to $_currentTheme');
   }
 
-  void _toggleSpecialChars() {
-    setState(() => _showSpecialChars = !_showSpecialChars);
-    _showSnackBar(
-      _showSpecialChars
-          ? 'Special characters shown'
-          : 'Special characters hidden',
+  void _handleArrowUp(String editorId) {
+    interop.moveCursor(editorId, 'up');
+  }
+
+  void _handleArrowDown(String editorId) {
+    interop.moveCursor(editorId, 'down');
+  }
+
+  void _handleArrowLeft(String editorId) {
+    interop.moveCursor(editorId, 'left');
+  }
+
+  void _handleArrowRight(String editorId) {
+    interop.moveCursor(editorId, 'right');
+  }
+
+  void _saveCodeToFile([String? editorId]) {
+    _showSaveDialog(editorId);
+  }
+
+  void _showSaveDialog([String? editorId]) {
+    final id = editorId ?? _monacoDivIds[0];
+    final TextEditingController fileNameController = TextEditingController(
+      text: _currentFileNames[id] ?? 'untitled.py',
     );
-  }
 
-  void _saveCodeToFile() {
-    _showSaveDialog();
-  }
-
-  void _showSaveDialog() {
-    final TextEditingController fileNameController =
-    TextEditingController(text: _currentFileName);
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -315,16 +501,17 @@ greet("World")
           ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Cancel')),
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
             ElevatedButton(
               onPressed: () {
                 String fileName = fileNameController.text.trim();
                 if (fileName.isEmpty) fileName = 'untitled.py';
                 if (!fileName.endsWith('.py')) fileName += '.py';
 
-                _downloadFile(fileName, interop.getMonacoValue());
-                setState(() => _currentFileName = fileName);
+                _downloadFile(fileName, interop.getMonacoValue(id));
+                setState(() => _currentFileNames[id] = fileName);
                 Navigator.of(context).pop();
                 _showSnackBar('File saved as $fileName');
               },
@@ -337,11 +524,9 @@ greet("World")
   }
 
   void _downloadFile(String fileName, String content) {
-    // This can be done with a JS interop call for more robustness,
-    // but the original dart:html approach works well here.
     final blob = html.Blob([content], 'text/plain');
     final url = html.Url.createObjectUrlFromBlob(blob);
-    final anchor = html.AnchorElement(href: url)
+    html.AnchorElement(href: url)
       ..setAttribute("download", fileName)
       ..click();
     html.Url.revokeObjectUrl(url);
@@ -357,33 +542,85 @@ greet("World")
     );
   }
 
+  void _handleKeyPress(String key, String editorId) {
+    // Insert the key at current cursor position
+    interop.insertTextAtCursor(editorId, key);
+  }
+
+  void _handleBackspace(String editorId) {
+    // Delete character before cursor
+    interop.deleteCharacterBeforeCursor(editorId);
+  }
+
+  void _handleEnter(String editorId) {
+    // Insert new line
+    interop.insertTextAtCursor(editorId, '\n');
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Python Web IDE - $_currentFileName'),
+        title: Text(
+          'Python Web IDE - $numberOfStudents Student${numberOfStudents == 1 ? '' : 's'}',
+        ),
         backgroundColor: Colors.grey[900],
         actions: [
+          PopupMenuButton<int>(
+            onSelected: (value) async {
+              setState(() {
+                numberOfStudents = value;
+              });
+              _assignRollNumbers();
+              await _reinitializeEditors();
+            },
+            itemBuilder:
+                (context) => [
+                  const PopupMenuItem<int>(
+                    value: 0,
+                    enabled: false,
+                    child: Text(
+                      'Number of Students',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  const PopupMenuDivider(),
+                  for (int i = 1; i <= 4; i++)
+                    PopupMenuItem<int>(
+                      value: i,
+                      child: Row(
+                        children: [
+                          if (numberOfStudents == i)
+                            const Icon(Icons.check, size: 16),
+                          if (numberOfStudents == i) const SizedBox(width: 8),
+                          Text('$i Student${i == 1 ? '' : 's'}'),
+                        ],
+                      ),
+                    ),
+                ],
+          ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.palette),
             tooltip: 'Change Theme',
             onSelected: (value) {
               if (value != 'header') _changeTheme(value);
             },
-            itemBuilder: (context) => [
-              const PopupMenuItem<String>(
-                value: 'header',
-                enabled: false,
-                child: Text('Editor Themes', style: TextStyle(fontWeight: FontWeight.bold)),
-              ),
-              const PopupMenuDivider(),
-              ..._availableThemes.map(
-                    (theme) => PopupMenuItem<String>(
-                  value: theme,
-                  child: Text(theme),
-                ),
-              ),
-            ],
+            itemBuilder:
+                (context) => [
+                  const PopupMenuItem<String>(
+                    value: 'header',
+                    enabled: false,
+                    child: Text(
+                      'Editor Themes',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  const PopupMenuDivider(),
+                  ..._availableThemes.map(
+                    (theme) =>
+                        PopupMenuItem<String>(value: theme, child: Text(theme)),
+                  ),
+                ],
           ),
           PopupMenuButton<String>(
             icon: const Icon(Icons.school),
@@ -391,20 +628,24 @@ greet("World")
             onSelected: (value) {
               if (value != 'header') _loadExample(value);
             },
-            itemBuilder: (context) => [
-              const PopupMenuItem<String>(
-                value: 'header',
-                enabled: false,
-                child: Text('Code Examples', style: TextStyle(fontWeight: FontWeight.bold)),
-              ),
-              const PopupMenuDivider(),
-              ...CodeExamples.examples.keys.map(
+            itemBuilder:
+                (context) => [
+                  const PopupMenuItem<String>(
+                    value: 'header',
+                    enabled: false,
+                    child: Text(
+                      'Code Examples',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  const PopupMenuDivider(),
+                  ...CodeExamples.examples.keys.map(
                     (example) => PopupMenuItem<String>(
-                  value: example,
-                  child: Text(example),
-                ),
-              ),
-            ],
+                      value: example,
+                      child: Text(example),
+                    ),
+                  ),
+                ],
           ),
           IconButton(
             icon: const Icon(Icons.save),
@@ -415,85 +656,154 @@ greet("World")
       ),
       body: Column(
         children: [
-          ToolBar(
-            onRun: _runCode,
-            fontSize: _fontSize,
-            onSpecialCharInsert: _insertSpecialChar,
-            onClear: _clearOutput,
-            onClearEditor: _clearEditor,
-            onSelectAll: _selectAll,
-            onCopy: _copyCode,
-            onPaste: _pasteCode,
-            onUndo: _undo,
-            onRedo: _redo,
-            onZoomIn: _zoomIn,
-            onZoomOut: _zoomOut,
-            onPrettify: _prettifyCode,
-            onToggleSpecialChars: _toggleSpecialChars,
-            canUndo: _codeHistory.canUndo(),
-            canRedo: _codeHistory.canRedo(),
-            showSpecialChars: _showSpecialChars,
-          ),
           Expanded(
-            flex: (_editorHeightRatio * 100).toInt(),
-            child: Container(
-              color: Colors.black,
-              child: _monacoInitialized
-                  ? HtmlElementView(viewType: _monacoElementId)
-                  : const Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 16),
-                    Text('Loading Editor...'),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          const Divider(height: 1, color: Colors.grey),
-          Expanded(
-            flex: ((1 - _editorHeightRatio) * 100).toInt(),
-            child: Container(
-              color: Colors.grey[900],
-              padding: const EdgeInsets.all(8.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.terminal, color: Colors.green),
-                      const SizedBox(width: 8),
-                      const Text('Output'),
-                      const Spacer(),
-                      IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: _clearOutput,
-                        tooltip: 'Clear Output',
-                      ),
-                    ],
-                  ),
-                  const Divider(color: Colors.grey),
+            child: Row(
+              children: [
+                for (int i = 0; i < numberOfStudents; i++)
                   Expanded(
-                    child: SingleChildScrollView(
-                      child: SelectableText(
-                        _output.isEmpty
-                            ? 'Output will appear here...'
-                            : _output,
-                        style: TextStyle(
-                          color: _output.contains('Error')
-                              ? Colors.red
-                              : Colors.white,
-                          fontFamily: 'monospace',
-                          fontSize: 14,
+                    child: Column(
+                      children: [
+                        //Roll Number Header
+                        Container(
+                          height: 30,
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: Colors.blue[700],
+                            border: const Border(
+                              bottom: BorderSide(color: Colors.grey),
+                            ),
+                          ),
+                          child: Center(
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'Student ${i + 1} - Roll No: ${_editorRollNumbers[_monacoDivIds[i]] ?? 'N/A'}',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                // Refresh button right beside the roll number
+                                GestureDetector(
+                                  onTap:
+                                      () => _regenerateRollNumber(
+                                        _monacoDivIds[i],
+                                      ),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: const Icon(
+                                      Icons.refresh,
+                                      color: Colors.white,
+                                      size: 14,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
-                      ),
+
+                        // Editor section
+                        Expanded(
+                          flex: (_editorHeightRatio * 100).toInt(),
+                          child: Stack(
+                            children: [
+                              HtmlElementView(viewType: _monacoElementIds[i]),
+                              if (!_monacoInitialized)
+                                const Center(
+                                  child: CircularProgressIndicator(),
+                                ),
+                            ],
+                          ),
+                        ),
+                        const Divider(height: 1, color: Colors.grey),
+                        // Output section
+                        Expanded(
+                          flex: ((1 - _editorHeightRatio) * 100).toInt(),
+                          child: Container(
+                            color: Colors.grey[900],
+                            padding: const EdgeInsets.all(8.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.terminal,
+                                      color: Colors.green,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text('Output ${i + 1}'),
+                                    const Spacer(),
+                                    IconButton(
+                                      icon: const Icon(Icons.play_arrow),
+                                      onPressed:
+                                          () => _runCode(_monacoDivIds[i]),
+                                      tooltip: 'Run Code',
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.clear),
+                                      onPressed:
+                                          () => _clearOutput(_monacoDivIds[i]),
+                                      tooltip: 'Clear Output',
+                                    ),
+                                  ],
+                                ),
+                                const Divider(color: Colors.grey),
+                                Expanded(
+                                  child: SingleChildScrollView(
+                                    child: SelectableText(
+                                      _editorOutputs[_monacoDivIds[i]]
+                                                  ?.isEmpty ??
+                                              true
+                                          ? 'Output will appear here...'
+                                          : _editorOutputs[_monacoDivIds[i]] ??
+                                              '',
+                                      style: TextStyle(
+                                        color:
+                                            (_editorOutputs[_monacoDivIds[i]] ??
+                                                        '')
+                                                    .contains('Error')
+                                                ? Colors.red
+                                                : Colors.white,
+                                        fontFamily: 'monospace',
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                if (_isLoading)
+                                  const LinearProgressIndicator(minHeight: 2),
+                              ],
+                            ),
+                          ),
+                        ),
+                        KeyboardToolbar(
+                          onKeyPress:
+                              (key) => _handleKeyPress(key, _monacoDivIds[i]),
+                          onBackspace: () => _handleBackspace(_monacoDivIds[i]),
+                          onEnter: () => _handleEnter(_monacoDivIds[i]),
+                          onUndo: () => _undo(_monacoDivIds[i]),
+                          onRedo: () => _redo(_monacoDivIds[i]),
+                          canUndo: _canUndoCache[_monacoDivIds[i]] ?? false,
+                          canRedo: _canRedoCache[_monacoDivIds[i]] ?? false,
+                          onArrowUp: () => _handleArrowUp(_monacoDivIds[i]),
+                          onArrowDown: () => _handleArrowDown(_monacoDivIds[i]),
+                          onArrowLeft: () => _handleArrowLeft(_monacoDivIds[i]),
+                          onArrowRight:
+                              () => _handleArrowRight(_monacoDivIds[i]),
+                        ),
+                      ],
                     ),
                   ),
-                  if (_isLoading) const LinearProgressIndicator(minHeight: 2),
-                ],
-              ),
+              ],
             ),
           ),
         ],
