@@ -6,6 +6,7 @@ import 'dart:ui_web' as ui_web;
 import 'interop.dart' as interop;
 import 'utils/code_examples.dart';
 import 'utils/code_history.dart';
+import 'dart:math' as math;
 
 class IDEScreen extends StatefulWidget {
   const IDEScreen({super.key});
@@ -49,6 +50,10 @@ class _IDEScreenState extends State<IDEScreen> {
   final Map<String, bool> _canUndoCache = {};
   final Map<String, bool> _canRedoCache = {};
 
+  final Map<String, int> _editorRollNumbers = {};
+  final Set<int> _usedRollNumbers = {};
+  final math.Random _random = math.Random();
+
   @override
   void initState() {
     super.initState();
@@ -62,6 +67,7 @@ class _IDEScreenState extends State<IDEScreen> {
 
       // Initialize undo/redo cache
       _updateUndoRedoCache(id);
+      _assignRollNumbers();
     }
 
     // Register editor views
@@ -277,6 +283,44 @@ print(hello())
         });
       }
     }
+  }
+
+  int _generateUniqueRollNumber() {
+    if (_usedRollNumbers.length >= 40) {
+      return _random.nextInt(40) + 1;
+    }
+    int rollNumber;
+    do {
+      rollNumber = _random.nextInt(40) + 1; // Random number from 1 to 40
+    } while (_usedRollNumbers.contains(rollNumber));
+
+    _usedRollNumbers.add(rollNumber);
+    return rollNumber;
+  }
+
+  void _assignRollNumbers() {
+    _usedRollNumbers.clear();
+    _editorRollNumbers.clear();
+
+    for (int i = 0; i < numberOfStudents; i++) {
+      final editorId = _monacoDivIds[i];
+      _editorRollNumbers[editorId] = _generateUniqueRollNumber();
+    }
+  }
+
+  void _regenerateRollNumber(String editorId) {
+    // Remove current roll number from used set
+    final currentRoll = _editorRollNumbers[editorId];
+    if (currentRoll != null) {
+      _usedRollNumbers.remove(currentRoll);
+    }
+
+    // Generate new unique roll number
+    final newRollNumber = _generateUniqueRollNumber();
+
+    setState(() {
+      _editorRollNumbers[editorId] = newRollNumber;
+    });
   }
 
   void _undo(String editorId) {
@@ -527,6 +571,7 @@ print(hello())
               setState(() {
                 numberOfStudents = value;
               });
+              _assignRollNumbers();
               await _reinitializeEditors();
             },
             itemBuilder:
@@ -618,6 +663,48 @@ print(hello())
                   Expanded(
                     child: Column(
                       children: [
+                        //Roll Number Header
+                        Container(
+                          height: 30,
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: Colors.blue[700],
+                            border: const Border(
+                              bottom: BorderSide(color: Colors.grey),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Center(
+                                child: Text(
+                                  'Student ${i + 1} - Roll No: ${_editorRollNumbers[_monacoDivIds[i]] ?? 'N/A'}',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ),
+                              SizedBox(
+                                width: 40,
+                                child: IconButton(
+                                  icon: const Icon(
+                                    Icons.refresh,
+                                    color: Colors.white,
+                                    size: 16,
+                                  ),
+                                  onPressed:
+                                      () => _regenerateRollNumber(
+                                        _monacoDivIds[i],
+                                      ),
+                                  tooltip: 'Generate new roll number',
+                                  padding: EdgeInsets.zero,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
                         // Editor section
                         Expanded(
                           flex: (_editorHeightRatio * 100).toInt(),
