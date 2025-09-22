@@ -176,6 +176,103 @@ window.destroyMonacoEditor = function(elementId) {
   }
 }
 
+window.insertTextAtCursor = function(editorId, text) {
+  const editor = monacoEditors[editorId];
+  if (editor) {
+    const selection = editor.getSelection();
+    const range = new monaco.Range(
+      selection.startLineNumber,
+      selection.startColumn,
+      selection.endLineNumber,
+      selection.endColumn
+    );
+    editor.executeEdits('keyboard-input', [{
+      range: range,
+      text: text
+    }]);
+    editor.focus();
+  }
+};
+
+window.deleteCharacterBeforeCursor = function(editorId) {
+  const editor = monacoEditors[editorId];
+  if (editor) {
+    const position = editor.getPosition();
+    if (position.column > 1) {
+      const range = new monaco.Range(
+        position.lineNumber,
+        position.column - 1,
+        position.lineNumber,
+        position.column
+      );
+      editor.executeEdits('backspace', [{
+        range: range,
+        text: ''
+      }]);
+    } else if (position.lineNumber > 1) {
+      // Handle backspace at beginning of line
+      const model = editor.getModel();
+      const prevLineLength = model.getLineLength(position.lineNumber - 1);
+      const range = new monaco.Range(
+        position.lineNumber - 1,
+        prevLineLength + 1,
+        position.lineNumber,
+        1
+      );
+      editor.executeEdits('backspace', [{
+        range: range,
+        text: ''
+      }]);
+    }
+    editor.focus();
+  }
+};
+
+window.moveCursor = function(editorId, direction) {
+  const editor = monacoEditors[editorId];
+  if (editor) {
+    const position = editor.getPosition();
+    let newPosition;
+    
+    switch(direction) {
+      case 'up':
+        newPosition = { lineNumber: Math.max(1, position.lineNumber - 1), column: position.column };
+        break;
+      case 'down':
+        const lineCount = editor.getModel().getLineCount();
+        newPosition = { lineNumber: Math.min(lineCount, position.lineNumber + 1), column: position.column };
+        break;
+      case 'left':
+        if (position.column > 1) {
+          newPosition = { lineNumber: position.lineNumber, column: position.column - 1 };
+        } else if (position.lineNumber > 1) {
+          const prevLineLength = editor.getModel().getLineLength(position.lineNumber - 1);
+          newPosition = { lineNumber: position.lineNumber - 1, column: prevLineLength + 1 };
+        } else {
+          newPosition = position;
+        }
+        break;
+      case 'right':
+        const currentLineLength = editor.getModel().getLineLength(position.lineNumber);
+        if (position.column <= currentLineLength) {
+          newPosition = { lineNumber: position.lineNumber, column: position.column + 1 };
+        } else {
+          const lineCount = editor.getModel().getLineCount();
+          if (position.lineNumber < lineCount) {
+            newPosition = { lineNumber: position.lineNumber + 1, column: 1 };
+          } else {
+            newPosition = position;
+          }
+        }
+        break;
+      default:
+        newPosition = position;
+    }
+    
+    editor.setPosition(newPosition);
+    editor.focus();
+  }
+};
 // --- Pyodide Interop ---
 window.pyodideInterop = {
   init: (onOutput) => {

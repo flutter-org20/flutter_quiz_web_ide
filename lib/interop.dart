@@ -111,3 +111,45 @@ Future<void> destroyEditor(String elementId) async {
     print('Failed to destroy editor $elementId: $e');
   }
 }
+
+@JS('insertTextAtCursor')
+external void _insertTextAtCursor(String editorId, String text);
+
+@JS('deleteCharacterBeforeCursor')
+external void _deleteCharacterBeforeCursor(String editorId);
+
+Future<void> insertTextAtCursor(String editorId, String text) async {
+  try {
+    _insertTextAtCursor(editorId, text);
+  } catch (e) {
+    print('Failed to insert text in editor $editorId: $e');
+  }
+}
+
+Future<void> deleteCharacterBeforeCursor(String editorId) async {
+  try {
+    _deleteCharacterBeforeCursor(editorId);
+  } catch (e) {
+    print('Failed to delete character in editor $editorId: $e');
+  }
+}
+
+// Alias for setMonacoValue to match the undo/redo functionality
+Future<void> setEditorContent(String editorId, String content) async {
+  try {
+    setMonacoValue(editorId, content);
+  } catch (e) {
+    print('Failed to set editor content for $editorId: $e');
+  }
+}
+
+@JS('moveCursor')
+external void _moveCursor(String editorId, String direction);
+
+Future<void> moveCursor(String editorId, String direction) async {
+  try {
+    _moveCursor(editorId, direction);
+  } catch (e) {
+    print('Failed to move cursor in editor $editorId: $e');
+  }
+}

@@ -10,7 +10,7 @@ class EditorWithOutput extends StatelessWidget {
   final double editorHeightRatio;
 
   const EditorWithOutput({
-    Key? key,
+    super.key,
     required this.editorId,
     required this.elementViewType,
     required this.output,
@@ -18,7 +18,7 @@ class EditorWithOutput extends StatelessWidget {
     required this.onClearOutput,
     required this.onRun,
     this.editorHeightRatio = 0.6,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

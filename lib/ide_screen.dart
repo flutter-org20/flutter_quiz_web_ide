@@ -1,10 +1,8 @@
-import 'dart:developer';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:python_web_ide/widgets/keyboard_toolbar.dart';
 import 'dart:html' as html;
 import 'dart:ui_web' as ui_web;
-import './widgets/toolbar.dart';
 import 'interop.dart' as interop;
 import 'utils/code_examples.dart';
 import 'utils/code_history.dart';
@@ -23,7 +21,6 @@ class _IDEScreenState extends State<IDEScreen> {
   final double _editorHeightRatio = 0.6;
   bool _pyodideLoaded = false;
   double _fontSize = 14.0;
-  bool _showSpecialChars = false;
   final Map<String, String> _lastText = {};
   final Map<String, CodeHistory> _codeHistories = {};
   String _currentTheme = 'vs-dark';
@@ -49,6 +46,9 @@ class _IDEScreenState extends State<IDEScreen> {
 
   final List<String> _availableThemes = ['vs-dark', 'vs-light', 'hc-black'];
 
+  final Map<String, bool> _canUndoCache = {};
+  final Map<String, bool> _canRedoCache = {};
+
   @override
   void initState() {
     super.initState();
@@ -59,6 +59,9 @@ class _IDEScreenState extends State<IDEScreen> {
       _lastText[id] = '';
       _currentFileNames[id] = 'untitled.py';
       _editorOutputs[id] = '';
+
+      // Initialize undo/redo cache
+      _updateUndoRedoCache(id);
     }
 
     // Register editor views
@@ -227,6 +230,8 @@ print(hello())
       if (!_preventHistoryUpdate && content != _lastText[editorId]) {
         _codeHistories[editorId]?.addState(content);
         _lastText[editorId] = content;
+
+        _updateUndoRedoCache(editorId);
         setState(() {}); // Update Undo/Redo button states
       }
     });
@@ -274,31 +279,39 @@ print(hello())
     }
   }
 
-  void _updateMonacoWithHistory(String? newState, String editorId) {
-    if (newState == null) return;
-    _preventHistoryUpdate = true;
-    setState(() {
-      interop.setMonacoValue(editorId, newState);
-      _lastText[editorId] = newState;
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _preventHistoryUpdate = false;
-    });
-  }
+  void _undo(String editorId) {
+    final history = _codeHistories[editorId];
+    if (history?.canUndo() == true) {
+      _preventHistoryUpdate = true;
+      final previousState = history!.undo();
+      if (previousState != null) {
+        interop.setEditorContent(editorId, previousState);
+        _lastText[editorId] = previousState;
+      }
 
-  void _undo([String? editorId]) {
-    final id = editorId ?? _monacoDivIds[0];
-    if (_codeHistories[id]?.canUndo() == true) {
-      _updateMonacoWithHistory(_codeHistories[id]?.undo(), id);
-      _showSnackBar('Undo successful');
+      // Immediately update cache for instant UI response
+      _updateUndoRedoCache(editorId);
+      setState(() {});
+
+      _preventHistoryUpdate = false;
     }
   }
 
-  void _redo([String? editorId]) {
-    final id = editorId ?? _monacoDivIds[0];
-    if (_codeHistories[id]?.canRedo() == true) {
-      _updateMonacoWithHistory(_codeHistories[id]?.redo(), id);
-      _showSnackBar('Redo successful');
+  void _redo(String editorId) {
+    final history = _codeHistories[editorId];
+    if (history?.canRedo() == true) {
+      _preventHistoryUpdate = true;
+      final nextState = history!.redo();
+      if (nextState != null) {
+        interop.setEditorContent(editorId, nextState);
+        _lastText[editorId] = nextState;
+      }
+
+      // Immediately update cache for instant UI response
+      _updateUndoRedoCache(editorId);
+      setState(() {});
+
+      _preventHistoryUpdate = false;
     }
   }
 
@@ -325,50 +338,9 @@ print(hello())
     }
   }
 
-  void _zoomIn() {
-    setState(() {
-      _fontSize = (_fontSize + 2).clamp(8.0, 32.0);
-      _updateMonacoSettings();
-    });
-  }
-
-  void _zoomOut() {
-    setState(() {
-      _fontSize = (_fontSize - 2).clamp(8.0, 32.0);
-      _updateMonacoSettings();
-    });
-  }
-
-  void _selectAll([String? editorId]) {
-    if (editorId != null) {
-      interop.selectAllInMonaco(editorId);
-    } else {
-      for (final id in _monacoDivIds) {
-        interop.selectAllInMonaco(id);
-      }
-    }
-    _showSnackBar('All text selected');
-  }
-
-  void _prettifyCode([String? editorId]) {
-    if (editorId != null) {
-      interop.formatMonacoDocument(editorId);
-    } else {
-      for (final id in _monacoDivIds) {
-        interop.formatMonacoDocument(id);
-      }
-    }
-    _showSnackBar('Code formatted');
-  }
-
-  void _insertSpecialChar(String char, [String? editorId]) {
-    if (editorId != null) {
-      interop.insertMonacoText(editorId, char);
-    } else {
-      for (final id in _monacoDivIds) {
-        interop.insertMonacoText(id, char);
-      }
-    }
+  void _updateUndoRedoCache(String editorId) {
+    _canUndoCache[editorId] = _codeHistories[editorId]?.canUndo() ?? false;
+    _canRedoCache[editorId] = _codeHistories[editorId]?.canRedo() ?? false;
   }
 
   void _loadExample(String exampleName, [String? editorId]) {
@@ -397,63 +369,44 @@ print(hello())
     }
   }
 
-  void _clearEditor() {
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text('Clear Editor'),
-          backgroundColor: Colors.grey[800],
-          content: const Text(
-            'Are you sure you want to clear all editor content? This action cannot be undone.',
-            style: TextStyle(color: Colors.white),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                // Clear all editors
-                for (final id in _monacoDivIds) {
-                  interop.setMonacoValue(id, '');
-                  _lastText[id] = '';
-                  _codeHistories[id]?.clear();
-                  _codeHistories[id]?.addState('');
-                  _currentFileNames[id] = 'untitled.py';
-                }
-                setState(() {});
-                Navigator.of(context).pop();
-                _showSnackBar('Editors cleared');
-              },
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              child: const Text('Clear'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  void _copyCode([String? editorId]) {
-    final id = editorId ?? _monacoDivIds[0];
-    interop.copyMonacoSelection(id);
-    _showSnackBar('Code copied to clipboard');
-  }
-
-  void _pasteCode([String? editorId]) async {
-    final id = editorId ?? _monacoDivIds[0];
-    try {
-      final data = await Clipboard.getData(Clipboard.kTextPlain);
-      if (data?.text != null && data!.text!.isNotEmpty) {
-        interop.insertMonacoText(id, data.text!);
-        _showSnackBar('Code pasted from clipboard');
-      }
-    } catch (e) {
-      log('Error pasting: $e');
-    }
-  }
+  // void _clearEditor(String? editorId) {
+  //   showDialog(
+  //     context: context,
+  //     builder: (BuildContext context) {
+  //       return AlertDialog(
+  //         title: const Text('Clear Editor'),
+  //         backgroundColor: Colors.grey[800],
+  //         content: const Text(
+  //           'Are you sure you want to clear all editor content? This action cannot be undone.',
+  //           style: TextStyle(color: Colors.white),
+  //         ),
+  //         actions: [
+  //           TextButton(
+  //             onPressed: () => Navigator.of(context).pop(),
+  //             child: const Text('Cancel'),
+  //           ),
+  //           ElevatedButton(
+  //             onPressed: () {
+  //               // Clear all editors
+  //               for (final id in _monacoDivIds) {
+  //                 interop.setMonacoValue(id, '');
+  //                 _lastText[id] = '';
+  //                 _codeHistories[id]?.clear();
+  //                 _codeHistories[id]?.addState('');
+  //                 _currentFileNames[id] = 'untitled.py';
+  //               }
+  //               setState(() {});
+  //               Navigator.of(context).pop();
+  //               _showSnackBar('Editors cleared');
+  //             },
+  //             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+  //             child: const Text('Clear'),
+  //           ),
+  //         ],
+  //       );
+  //     },
+  //   );
+  // }
 
   void _changeTheme(String themeName) {
     setState(() {
@@ -463,13 +416,20 @@ print(hello())
     _showSnackBar('Theme changed to $_currentTheme');
   }
 
-  void _toggleSpecialChars() {
-    setState(() => _showSpecialChars = !_showSpecialChars);
-    _showSnackBar(
-      _showSpecialChars
-          ? 'Special characters shown'
-          : 'Special characters hidden',
-    );
+  void _handleArrowUp(String editorId) {
+    interop.moveCursor(editorId, 'up');
+  }
+
+  void _handleArrowDown(String editorId) {
+    interop.moveCursor(editorId, 'down');
+  }
+
+  void _handleArrowLeft(String editorId) {
+    interop.moveCursor(editorId, 'left');
+  }
+
+  void _handleArrowRight(String editorId) {
+    interop.moveCursor(editorId, 'right');
   }
 
   void _saveCodeToFile([String? editorId]) {
@@ -536,6 +496,21 @@ print(hello())
         backgroundColor: Colors.blue[700],
       ),
     );
+  }
+
+  void _handleKeyPress(String key, String editorId) {
+    // Insert the key at current cursor position
+    interop.insertTextAtCursor(editorId, key);
+  }
+
+  void _handleBackspace(String editorId) {
+    // Delete character before cursor
+    interop.deleteCharacterBeforeCursor(editorId);
+  }
+
+  void _handleEnter(String editorId) {
+    // Insert new line
+    interop.insertTextAtCursor(editorId, '\n');
   }
 
   @override
@@ -636,26 +611,6 @@ print(hello())
       ),
       body: Column(
         children: [
-          ToolBar(
-            onRun: () => _runCode(_monacoDivIds[0]),
-            fontSize: _fontSize,
-            onSpecialCharInsert:
-                (char) => _insertSpecialChar(char, _monacoDivIds[0]),
-            onClear: () => _clearOutput(_monacoDivIds[0]),
-            onClearEditor: () => _clearEditor(),
-            onSelectAll: () => _selectAll(_monacoDivIds[0]),
-            onCopy: () => _copyCode(_monacoDivIds[0]),
-            onPaste: () => _pasteCode(_monacoDivIds[0]),
-            onUndo: () => _undo(_monacoDivIds[0]),
-            onRedo: () => _redo(_monacoDivIds[0]),
-            onZoomIn: _zoomIn,
-            onZoomOut: _zoomOut,
-            onPrettify: () => _prettifyCode(_monacoDivIds[0]),
-            onToggleSpecialChars: _toggleSpecialChars,
-            canUndo: _codeHistories[_monacoDivIds[0]]?.canUndo() ?? false,
-            canRedo: _codeHistories[_monacoDivIds[0]]?.canRedo() ?? false,
-            showSpecialChars: _showSpecialChars,
-          ),
           Expanded(
             child: Row(
               children: [
@@ -737,6 +692,21 @@ print(hello())
                               ],
                             ),
                           ),
+                        ),
+                        KeyboardToolbar(
+                          onKeyPress:
+                              (key) => _handleKeyPress(key, _monacoDivIds[i]),
+                          onBackspace: () => _handleBackspace(_monacoDivIds[i]),
+                          onEnter: () => _handleEnter(_monacoDivIds[i]),
+                          onUndo: () => _undo(_monacoDivIds[i]),
+                          onRedo: () => _redo(_monacoDivIds[i]),
+                          canUndo: _canUndoCache[_monacoDivIds[i]] ?? false,
+                          canRedo: _canRedoCache[_monacoDivIds[i]] ?? false,
+                          onArrowUp: () => _handleArrowUp(_monacoDivIds[i]),
+                          onArrowDown: () => _handleArrowDown(_monacoDivIds[i]),
+                          onArrowLeft: () => _handleArrowLeft(_monacoDivIds[i]),
+                          onArrowRight:
+                              () => _handleArrowRight(_monacoDivIds[i]),
                         ),
                       ],
                     ),
