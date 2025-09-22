@@ -673,10 +673,11 @@ print(hello())
                               bottom: BorderSide(color: Colors.grey),
                             ),
                           ),
-                          child: Row(
-                            children: [
-                              Center(
-                                child: Text(
+                          child: Center(
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
                                   'Student ${i + 1} - Roll No: ${_editorRollNumbers[_monacoDivIds[i]] ?? 'N/A'}',
                                   style: const TextStyle(
                                     color: Colors.white,
@@ -684,24 +685,28 @@ print(hello())
                                     fontSize: 14,
                                   ),
                                 ),
-                              ),
-                              SizedBox(
-                                width: 40,
-                                child: IconButton(
-                                  icon: const Icon(
-                                    Icons.refresh,
-                                    color: Colors.white,
-                                    size: 16,
-                                  ),
-                                  onPressed:
+                                const SizedBox(width: 8),
+                                // Refresh button right beside the roll number
+                                GestureDetector(
+                                  onTap:
                                       () => _regenerateRollNumber(
                                         _monacoDivIds[i],
                                       ),
-                                  tooltip: 'Generate new roll number',
-                                  padding: EdgeInsets.zero,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withOpacity(0.2),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: const Icon(
+                                      Icons.refresh,
+                                      color: Colors.white,
+                                      size: 14,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
 
