@@ -69,6 +69,11 @@ class _IDEScreenState extends State<IDEScreen> {
 
       // Initialize undo/redo cache
       _updateUndoRedoCache(id);
+
+      // Initialize autocomplete cache (enabled by default)
+      _autocompleteEnabledCache[id] = true;
+      _isPrettifyingCache[id] = false;
+
       _assignRollNumbers();
     }
 
@@ -405,7 +410,18 @@ print(hello())
   void _toggleAutocomplete(String editorId) {
     final isEnabled = _autocompleteEnabledCache[editorId] ?? true;
     _autocompleteEnabledCache[editorId] = !isEnabled;
+
+    // Set autocomplete state
     interop.setAutocomplete(editorId, !isEnabled);
+
+    // If enabling autocomplete, trigger suggestions to demonstrate functionality
+    if (!isEnabled) {
+      // Small delay to ensure settings are applied first
+      Future.delayed(Duration(milliseconds: 100), () {
+        interop.triggerAutocomplete(editorId);
+      });
+    }
+
     setState(() {}); // Update UI
   }
 
