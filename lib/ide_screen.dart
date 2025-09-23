@@ -8,6 +8,8 @@ import 'utils/code_examples.dart';
 import 'utils/code_history.dart';
 import 'dart:math' as math;
 
+enum KeyboardPosition { aboveEditor, betweenEditorOutput, belowOutput }
+
 class IDEScreen extends StatefulWidget {
   const IDEScreen({super.key});
 
@@ -56,6 +58,9 @@ class _IDEScreenState extends State<IDEScreen> {
   final Set<int> _usedRollNumbers = {};
   final math.Random _random = math.Random();
 
+  // Keyboard positioning - now per editor
+  final Map<String, KeyboardPosition> _keyboardPositions = {};
+
   @override
   void initState() {
     super.initState();
@@ -73,6 +78,9 @@ class _IDEScreenState extends State<IDEScreen> {
       // Initialize autocomplete cache (enabled by default)
       _autocompleteEnabledCache[id] = true;
       _isPrettifyingCache[id] = false;
+
+      // Initialize keyboard position for each editor
+      _keyboardPositions[id] = KeyboardPosition.betweenEditorOutput;
 
       _assignRollNumbers();
     }
@@ -595,6 +603,55 @@ print(hello())
     interop.insertTextAtCursor(editorId, '\n');
   }
 
+  void _handleMenuSelection(String value, String editorId) {
+    print('Menu selection: $value for editor: $editorId');
+    print('Current position: ${_keyboardPositions[editorId]}');
+
+    setState(() {
+      switch (value) {
+        case 'above':
+          _keyboardPositions[editorId] = KeyboardPosition.aboveEditor;
+          print('Setting position to: aboveEditor for $editorId');
+          break;
+        case 'between':
+          _keyboardPositions[editorId] = KeyboardPosition.betweenEditorOutput;
+          print('Setting position to: betweenEditorOutput for $editorId');
+          break;
+        case 'below':
+          _keyboardPositions[editorId] = KeyboardPosition.belowOutput;
+          print('Setting position to: belowOutput for $editorId');
+          break;
+      }
+    });
+
+    print('New position: ${_keyboardPositions[editorId]} for $editorId');
+  }
+
+  Widget _buildKeyboard(int editorIndex) {
+    return KeyboardToolbar(
+      key: ValueKey('keyboard-${_monacoDivIds[editorIndex]}'),
+      onKeyPress: (key) => _handleKeyPress(key, _monacoDivIds[editorIndex]),
+      onBackspace: () => _handleBackspace(_monacoDivIds[editorIndex]),
+      onEnter: () => _handleEnter(_monacoDivIds[editorIndex]),
+      onUndo: () => _undo(_monacoDivIds[editorIndex]),
+      onRedo: () => _redo(_monacoDivIds[editorIndex]),
+      canUndo: _canUndoCache[_monacoDivIds[editorIndex]] ?? false,
+      canRedo: _canRedoCache[_monacoDivIds[editorIndex]] ?? false,
+      onArrowUp: () => _handleArrowUp(_monacoDivIds[editorIndex]),
+      onArrowDown: () => _handleArrowDown(_monacoDivIds[editorIndex]),
+      onArrowLeft: () => _handleArrowLeft(_monacoDivIds[editorIndex]),
+      onArrowRight: () => _handleArrowRight(_monacoDivIds[editorIndex]),
+      onPrettify: () => _prettifyCode(_monacoDivIds[editorIndex]),
+      onToggleAutocomplete:
+          () => _toggleAutocomplete(_monacoDivIds[editorIndex]),
+      isAutocompleteEnabled:
+          _autocompleteEnabledCache[_monacoDivIds[editorIndex]] ?? true,
+      isPrettifying: _isPrettifyingCache[_monacoDivIds[editorIndex]] ?? false,
+      onMenuSelection: _handleMenuSelection,
+      editorId: _monacoDivIds[editorIndex],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -707,6 +764,7 @@ print(hello())
                                   numberOfStudents
                               : 350, // Fixed width for mobile
                       child: Column(
+                        key: ValueKey('editor-column-${_monacoDivIds[i]}'),
                         children: [
                           //Roll Number Header
                           Container(
@@ -755,12 +813,26 @@ print(hello())
                             ),
                           ),
 
+                          // Show keyboard above editor if selected
+                          if (_keyboardPositions[_monacoDivIds[i]] ==
+                              KeyboardPosition.aboveEditor)
+                            _buildKeyboard(i),
+
                           // Editor section
                           Expanded(
+                            key: ValueKey(
+                              'editor-expanded-${_monacoElementIds[i]}',
+                            ),
                             flex: (_editorHeightRatio * 100).toInt(),
                             child: Stack(
+                              key: ValueKey(
+                                'editor-stack-${_monacoElementIds[i]}',
+                              ),
                               children: [
-                                HtmlElementView(viewType: _monacoElementIds[i]),
+                                HtmlElementView(
+                                  key: ValueKey(_monacoElementIds[i]),
+                                  viewType: _monacoElementIds[i],
+                                ),
                                 if (!_monacoInitialized)
                                   const Center(
                                     child: CircularProgressIndicator(),
@@ -768,14 +840,29 @@ print(hello())
                               ],
                             ),
                           ),
+
+                          // Show keyboard between editor and output if selected
+                          if (_keyboardPositions[_monacoDivIds[i]] ==
+                              KeyboardPosition.betweenEditorOutput)
+                            _buildKeyboard(i),
+
                           const Divider(height: 1, color: Colors.grey),
                           // Output section
                           Expanded(
+                            key: ValueKey(
+                              'output-expanded-${_monacoElementIds[i]}',
+                            ),
                             flex: ((1 - _editorHeightRatio) * 100).toInt(),
                             child: Container(
+                              key: ValueKey(
+                                'output-container-${_monacoElementIds[i]}',
+                              ),
                               color: Colors.grey[900],
                               padding: const EdgeInsets.all(8.0),
                               child: Column(
+                                key: ValueKey(
+                                  'output-column-${_monacoElementIds[i]}',
+                                ),
                                 crossAxisAlignment: CrossAxisAlignment.stretch,
                                 children: [
                                   Row(
@@ -831,32 +918,11 @@ print(hello())
                               ),
                             ),
                           ),
-                          KeyboardToolbar(
-                            onKeyPress:
-                                (key) => _handleKeyPress(key, _monacoDivIds[i]),
-                            onBackspace:
-                                () => _handleBackspace(_monacoDivIds[i]),
-                            onEnter: () => _handleEnter(_monacoDivIds[i]),
-                            onUndo: () => _undo(_monacoDivIds[i]),
-                            onRedo: () => _redo(_monacoDivIds[i]),
-                            canUndo: _canUndoCache[_monacoDivIds[i]] ?? false,
-                            canRedo: _canRedoCache[_monacoDivIds[i]] ?? false,
-                            onArrowUp: () => _handleArrowUp(_monacoDivIds[i]),
-                            onArrowDown:
-                                () => _handleArrowDown(_monacoDivIds[i]),
-                            onArrowLeft:
-                                () => _handleArrowLeft(_monacoDivIds[i]),
-                            onArrowRight:
-                                () => _handleArrowRight(_monacoDivIds[i]),
-                            onPrettify: () => _prettifyCode(_monacoDivIds[i]),
-                            onToggleAutocomplete:
-                                () => _toggleAutocomplete(_monacoDivIds[i]),
-                            isAutocompleteEnabled:
-                                _autocompleteEnabledCache[_monacoDivIds[i]] ??
-                                true,
-                            isPrettifying:
-                                _isPrettifyingCache[_monacoDivIds[i]] ?? false,
-                          ),
+
+                          // Show keyboard below output if selected
+                          if (_keyboardPositions[_monacoDivIds[i]] ==
+                              KeyboardPosition.belowOutput)
+                            _buildKeyboard(i),
                         ],
                       ),
                     ),
