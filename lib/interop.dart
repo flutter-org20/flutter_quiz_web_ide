@@ -153,3 +153,24 @@ Future<void> moveCursor(String editorId, String direction) async {
     print('Failed to move cursor in editor $editorId: $e');
   }
 }
+
+// Prettify code function (using existing formatDocument)
+Future<void> prettifyCode(String editorId) async {
+  try {
+    formatMonacoDocument(editorId);
+  } catch (e) {
+    print('Failed to prettify code in editor $editorId: $e');
+  }
+}
+
+// Autocomplete functions - these will be implemented in JS
+@JS('monacoInterop.setAutocomplete')
+external void _setAutocomplete(String editorId, bool enabled);
+
+Future<void> setAutocomplete(String editorId, bool enabled) async {
+  try {
+    _setAutocomplete(editorId, enabled);
+  } catch (e) {
+    print('Failed to set autocomplete in editor $editorId: $e');
+  }
+}

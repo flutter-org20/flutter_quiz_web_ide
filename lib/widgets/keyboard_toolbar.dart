@@ -12,6 +12,10 @@ class KeyboardToolbar extends StatefulWidget {
   final VoidCallback onArrowDown;
   final VoidCallback onArrowLeft;
   final VoidCallback onArrowRight;
+  final VoidCallback onPrettify;
+  final VoidCallback onToggleAutocomplete;
+  final bool isAutocompleteEnabled;
+  final bool isPrettifying; // Add prettifying state
 
   const KeyboardToolbar({
     super.key,
@@ -26,6 +30,10 @@ class KeyboardToolbar extends StatefulWidget {
     required this.onArrowDown,
     required this.onArrowLeft,
     required this.onArrowRight,
+    required this.onPrettify,
+    required this.onToggleAutocomplete,
+    required this.isAutocompleteEnabled,
+    this.isPrettifying = false, // Default to false
   });
 
   @override
@@ -81,28 +89,56 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
     return Container(
       height: 40,
       padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: Row(
-        children: [
-          _buildModeButton('ABC', 0),
-          const SizedBox(width: 8),
-          _buildModeButton('123', 1),
-          const SizedBox(width: 8),
-          _buildModeButton('PY', 2),
-          _buildUndoRedoButton(
-            icon: Icons.undo,
-            onPressed: widget.canUndo ? widget.onUndo : null,
-            tooltip: 'Undo',
-          ),
-          const SizedBox(width: 4),
-          _buildUndoRedoButton(
-            icon: Icons.redo,
-            onPressed: widget.canRedo ? widget.onRedo : null,
-            tooltip: 'Redo',
-          ),
-          const Spacer(),
-          if (_currentMode == 0) // Only show caps lock for letters
-            _buildCapsButton(),
-        ],
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            _buildModeButton('ABC', 0),
+            const SizedBox(width: 8),
+            _buildModeButton('123', 1),
+            const SizedBox(width: 8),
+            _buildModeButton('PY', 2),
+            const SizedBox(width: 8),
+
+            // Prettify button
+            _buildFeatureButton(
+              icon: Icons.auto_fix_high,
+              onPressed: widget.onPrettify,
+              tooltip: 'Prettify - Format Code',
+              color: Colors.purple,
+              isToggled: widget.isPrettifying,
+            ),
+            const SizedBox(width: 4),
+
+            // Autocomplete toggle button
+            _buildFeatureButton(
+              icon: Icons.auto_awesome,
+              onPressed: widget.onToggleAutocomplete,
+              tooltip:
+                  widget.isAutocompleteEnabled
+                      ? 'Autocomplete - Disable Suggestions'
+                      : 'Autocomplete - Enable Suggestions',
+              color: widget.isAutocompleteEnabled ? Colors.green : Colors.grey,
+              isToggled: widget.isAutocompleteEnabled,
+            ),
+            const SizedBox(width: 8),
+
+            _buildUndoRedoButton(
+              icon: Icons.undo,
+              onPressed: widget.canUndo ? widget.onUndo : null,
+              tooltip: 'Undo - Revert Last Action',
+            ),
+            const SizedBox(width: 4),
+            _buildUndoRedoButton(
+              icon: Icons.redo,
+              onPressed: widget.canRedo ? widget.onRedo : null,
+              tooltip: 'Redo - Restore Last Action',
+            ),
+            const SizedBox(width: 8),
+            if (_currentMode == 0) // Only show caps lock for letters
+              _buildCapsButton(),
+          ],
+        ),
       ),
     );
   }
@@ -112,28 +148,82 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
     required VoidCallback? onPressed,
     required String tooltip,
   }) {
-    return GestureDetector(
-      onTap: onPressed,
-      child: Container(
-        width: 36,
-        height: 28,
-        decoration: BoxDecoration(
-          color:
-              onPressed != null
-                  ? const Color(0xFF3C3C3C)
-                  : const Color(0xFF2A2A2A),
-          borderRadius: BorderRadius.circular(4),
-          border: Border.all(
+    return Tooltip(
+      message: tooltip,
+      textStyle: const TextStyle(
+        color: Colors.white,
+        fontSize: 12,
+        fontWeight: FontWeight.w500,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.black87,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      waitDuration: const Duration(milliseconds: 500),
+      child: GestureDetector(
+        onTap: onPressed,
+        child: Container(
+          width: 36,
+          height: 28,
+          decoration: BoxDecoration(
             color:
                 onPressed != null
-                    ? const Color(0xFF505050)
-                    : const Color(0xFF333333),
+                    ? const Color(0xFF3C3C3C)
+                    : const Color(0xFF2A2A2A),
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(
+              color:
+                  onPressed != null
+                      ? const Color(0xFF505050)
+                      : const Color(0xFF333333),
+            ),
+          ),
+          child: Icon(
+            icon,
+            color: onPressed != null ? Colors.white70 : Colors.grey[600],
+            size: 16,
           ),
         ),
-        child: Icon(
-          icon,
-          color: onPressed != null ? Colors.white70 : Colors.grey[600],
-          size: 16,
+      ),
+    );
+  }
+
+  Widget _buildFeatureButton({
+    required IconData icon,
+    required VoidCallback onPressed,
+    required String tooltip,
+    required Color color,
+    bool isToggled = false,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      textStyle: const TextStyle(
+        color: Colors.white,
+        fontSize: 12,
+        fontWeight: FontWeight.w500,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.black87,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      waitDuration: const Duration(milliseconds: 500),
+      child: GestureDetector(
+        onTap: onPressed,
+        child: Container(
+          width: 36,
+          height: 28,
+          decoration: BoxDecoration(
+            color: isToggled ? color.withOpacity(0.2) : const Color(0xFF3C3C3C),
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(
+              color: isToggled ? color : const Color(0xFF505050),
+            ),
+          ),
+          child: Icon(
+            icon,
+            color: isToggled ? color : Colors.white70,
+            size: 16,
+          ),
         ),
       ),
     );
@@ -141,20 +231,50 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
 
   Widget _buildModeButton(String label, int mode) {
     final bool isSelected = _currentMode == mode;
-    return GestureDetector(
-      onTap: () => setState(() => _currentMode = mode),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: isSelected ? Colors.blue : const Color(0xFF3C3C3C),
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.white : Colors.white70,
-            fontSize: 12,
-            fontWeight: FontWeight.bold,
+
+    // Define tooltips for each mode
+    String tooltip;
+    switch (mode) {
+      case 0:
+        tooltip = 'ABC - Letters Mode';
+        break;
+      case 1:
+        tooltip = '123 - Numbers Mode';
+        break;
+      case 2:
+        tooltip = 'PY - Python Symbols Mode';
+        break;
+      default:
+        tooltip = label;
+    }
+
+    return Tooltip(
+      message: tooltip,
+      textStyle: const TextStyle(
+        color: Colors.white,
+        fontSize: 12,
+        fontWeight: FontWeight.w500,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.black87,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      waitDuration: const Duration(milliseconds: 500),
+      child: GestureDetector(
+        onTap: () => setState(() => _currentMode = mode),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: isSelected ? Colors.blue : const Color(0xFF3C3C3C),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: isSelected ? Colors.white : Colors.white70,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
           ),
         ),
       ),
@@ -162,18 +282,32 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
   }
 
   Widget _buildCapsButton() {
-    return GestureDetector(
-      onTap: () => setState(() => _isUpperCase = !_isUpperCase),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-        decoration: BoxDecoration(
-          color: _isUpperCase ? Colors.orange : const Color(0xFF3C3C3C),
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Icon(
-          Icons.keyboard_capslock,
-          color: _isUpperCase ? Colors.white : Colors.white70,
-          size: 16,
+    return Tooltip(
+      message:
+          _isUpperCase ? 'CAPS - Disable Uppercase' : 'CAPS - Enable Uppercase',
+      textStyle: const TextStyle(
+        color: Colors.white,
+        fontSize: 12,
+        fontWeight: FontWeight.w500,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.black87,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      waitDuration: const Duration(milliseconds: 500),
+      child: GestureDetector(
+        onTap: () => setState(() => _isUpperCase = !_isUpperCase),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          decoration: BoxDecoration(
+            color: _isUpperCase ? Colors.orange : const Color(0xFF3C3C3C),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Icon(
+            Icons.keyboard_capslock,
+            color: _isUpperCase ? Colors.white : Colors.white70,
+            size: 16,
+          ),
         ),
       ),
     );
@@ -264,7 +398,7 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
       child: Row(
         children: [
           // Arrow Navigation Section
-          Container(
+          SizedBox(
             width: 90,
             height: 35,
             child: Stack(

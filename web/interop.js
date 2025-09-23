@@ -94,11 +94,47 @@ window.monacoInterop = {
         minimap: { enabled: false },
         scrollBeyondLastLine: false,
         renderLineHighlight: 'line',
-        selectOnLineNumbers: true
+        selectOnLineNumbers: true,
+        // Disable system keyboard on mobile
+        readOnly: false,
+        contextmenu: false,
+        // Prevent virtual keyboard on mobile
+        'semanticHighlighting.enabled': false
       });
 
       // Store the editor instance
       monacoEditors[containerId] = editor;
+
+      // Prevent system keyboard on mobile devices
+      const editorDomNode = editor.getDomNode();
+      if (editorDomNode) {
+        // Prevent focus events that trigger system keyboard
+        editorDomNode.addEventListener('touchstart', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }, { passive: false });
+        
+        editorDomNode.addEventListener('touchend', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }, { passive: false });
+
+        // Prevent input focus
+        const textArea = editorDomNode.querySelector('textarea');
+        if (textArea) {
+          textArea.setAttribute('readonly', 'readonly');
+          textArea.setAttribute('inputmode', 'none');
+          textArea.style.caretColor = 'transparent';
+          
+          // Remove readonly when we want to programmatically set content
+          const originalSetValue = editor.setValue.bind(editor);
+          editor.setValue = function(value) {
+            textArea.removeAttribute('readonly');
+            originalSetValue(value);
+            textArea.setAttribute('readonly', 'readonly');
+          };
+        }
+      }
 
       // Set up content change listener
       editor.onDidChangeModelContent(() => {
@@ -134,7 +170,101 @@ window.monacoInterop = {
   formatDocument: (containerId) => {
     const editor = monacoEditors[containerId];
     if (editor) {
-      editor.getAction('editor.action.formatDocument').run();
+      try {
+        // For Python, implement proper indentation that fixes bad indentation
+        const model = editor.getModel();
+        const value = model.getValue();
+        
+        // Split into lines and fix indentation
+        const lines = value.split('\n');
+        const formattedLines = [];
+        let currentIndentLevel = 0;
+        
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          const trimmedLine = line.trim();
+          
+          // Skip empty lines - preserve them as is
+          if (trimmedLine === '') {
+            formattedLines.push('');
+            continue;
+          }
+          
+          // Check if this line should decrease indentation
+          if (trimmedLine.match(/^(except|elif|else|finally):/)) {
+            currentIndentLevel = Math.max(0, currentIndentLevel - 1);
+          }
+          
+          // Determine if this should be at top level (unindented)
+          // Top level: function definitions, class definitions, imports, top-level statements that don't follow a colon
+          let shouldBeTopLevel = false;
+          
+          if (i === 0) {
+            // First line is always top level
+            shouldBeTopLevel = true;
+          } else {
+            // Check if this looks like a top-level statement
+            if (trimmedLine.match(/^(def |class |import |from |if __name__|#|@)/)) {
+              shouldBeTopLevel = true;
+              currentIndentLevel = 0;
+            } else {
+              // Look back to see if we're following a function/class definition or other top-level code
+              let foundTopLevelContext = false;
+              for (let j = i - 1; j >= 0; j--) {
+                const prevLine = lines[j].trim();
+                if (prevLine === '') continue; // Skip empty lines
+                
+                // If previous line was a function/class definition, we should be indented
+                if (prevLine.match(/^(def |class |if |for |while |try:|with |except|elif|else:)/)) {
+                  foundTopLevelContext = false;
+                  break;
+                }
+                
+                // If previous line was clearly top-level, and this line doesn't look like it should be indented
+                if (prevLine.match(/^(import |from |#|@)/) || 
+                    (!prevLine.endsWith(':') && !prevLine.match(/^(def |class |if |for |while |try:|with )/))) {
+                  // Check if current line looks like it should be top-level
+                  if (trimmedLine.match(/^(print|[a-zA-Z_][a-zA-Z0-9_]*\s*=|[a-zA-Z_][a-zA-Z0-9_]*\()/)) {
+                    foundTopLevelContext = true;
+                  }
+                  break;
+                }
+                break;
+              }
+              
+              if (foundTopLevelContext) {
+                shouldBeTopLevel = true;
+                currentIndentLevel = 0;
+              }
+            }
+          }
+          
+          // Apply indentation
+          if (shouldBeTopLevel) {
+            formattedLines.push(trimmedLine);
+            currentIndentLevel = 0;
+          } else {
+            // Use current indent level
+            formattedLines.push('    '.repeat(currentIndentLevel) + trimmedLine);
+          }
+          
+          // Increase indent for lines ending with ':' (but not comments)
+          if (trimmedLine.endsWith(':') && !trimmedLine.trimStart().startsWith('#')) {
+            currentIndentLevel++;
+          }
+        }
+        
+        // Set the formatted code back to the editor
+        model.setValue(formattedLines.join('\n'));
+      } catch (error) {
+        console.log('Python formatting failed, using Monaco default:', error);
+        // Fallback to Monaco's built-in formatter
+        try {
+          editor.getAction('editor.action.formatDocument').run();
+        } catch (fallbackError) {
+          console.log('Monaco formatter also failed:', fallbackError);
+        }
+      }
     }
   },
 
@@ -158,6 +288,46 @@ window.monacoInterop = {
       const selection = editor.getSelection();
       const text = editor.getModel().getValueInRange(selection);
       navigator.clipboard.writeText(text);
+    }
+  },
+
+  setAutocomplete: (containerId, enabled) => {
+    const editor = monacoEditors[containerId];
+    if (editor) {
+      editor.updateOptions({
+        quickSuggestions: enabled,
+        suggestOnTriggerCharacters: enabled,
+        acceptSuggestionOnCommitCharacter: enabled,
+        acceptSuggestionOnEnter: enabled ? 'on' : 'off',
+        wordBasedSuggestions: enabled,
+        parameterHints: { enabled: enabled },
+        suggest: {
+          showKeywords: enabled,
+          showSnippets: enabled,
+          showFunctions: enabled,
+          showConstructors: enabled,
+          showFields: enabled,
+          showVariables: enabled,
+          showClasses: enabled,
+          showStructs: enabled,
+          showInterfaces: enabled,
+          showModules: enabled,
+          showProperties: enabled,
+          showEvents: enabled,
+          showOperators: enabled,
+          showUnits: enabled,
+          showValues: enabled,
+          showConstants: enabled,
+          showEnums: enabled,
+          showEnumMembers: enabled,
+          showWords: enabled,
+          showColors: enabled,
+          showFiles: enabled,
+          showReferences: enabled,
+          showFolders: enabled,
+          showTypeParameters: enabled
+        }
+      });
     }
   }
 };
@@ -322,6 +492,29 @@ window.pyodideInterop = {
     }
   }
 };
+
+// Additional mobile keyboard prevention
+window.disableSystemKeyboard = function() {
+  // Disable system keyboard globally on mobile
+  document.addEventListener('touchstart', function(e) {
+    if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') {
+      e.target.setAttribute('readonly', 'readonly');
+      e.target.setAttribute('inputmode', 'none');
+    }
+  });
+  
+  // Prevent zoom on input focus (mobile Safari)
+  document.addEventListener('touchend', function(e) {
+    if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') {
+      e.target.blur();
+    }
+  });
+};
+
+// Auto-disable on mobile devices
+if (/Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)) {
+  window.disableSystemKeyboard();
+}
 
 console.log('monacoInterop object created:', window.monacoInterop);
 console.log('pyodideInterop object created:', window.pyodideInterop);
