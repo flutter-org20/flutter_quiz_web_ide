@@ -8,9 +8,9 @@ import 'utils/code_examples.dart';
 import 'utils/code_history.dart';
 import 'dart:math' as math;
 import '../services/pollinations_services.dart';
-import '../models/api_response.dart';
 import '../services/prompt_history_service.dart';
 import '../widgets/prompt_history_widget.dart';
+import '../models/prompt_history.dart';
 
 enum KeyboardPosition { aboveEditor, betweenEditorOutput, belowOutput }
 
@@ -69,6 +69,9 @@ class _IDEScreenState extends State<IDEScreen> {
   // Output expansion state - per editor
   final Map<String, bool> _outputExpanded = {};
 
+  // Prevent multiple simultaneous Monaco initialization attempts
+  bool _isInitializingMonaco = false;
+
   // Input management
   final TextEditingController _promptController = TextEditingController();
   final FocusNode _promptFocus = FocusNode();
@@ -76,7 +79,6 @@ class _IDEScreenState extends State<IDEScreen> {
   // State management
   bool _isGenerating = false;
   String? _errorMessage;
-  String? _generatedText;
 
   // History management
   bool _showHistoryPanel = false;
@@ -113,6 +115,13 @@ class _IDEScreenState extends State<IDEScreen> {
       final elementId = _monacoElementIds[i];
       final divId = _monacoDivIds[i];
 
+      // Clean up any existing DOM elements from previous sessions
+      final existingElement = html.document.getElementById(divId);
+      if (existingElement != null) {
+        existingElement.remove();
+        print('Cleaned up existing DOM element: $divId');
+      }
+
       // Check if already registered to avoid duplicate registration
       try {
         ui_web.platformViewRegistry.registerViewFactory(
@@ -140,8 +149,25 @@ class _IDEScreenState extends State<IDEScreen> {
       html.document.addEventListener('visibilitychange', (_) {
         if (!html.document.hidden!) {
           // Page became visible, check if editors need reinitialization
-          Future.delayed(const Duration(milliseconds: 500), () {
-            _checkAndReinitializeEditors();
+          // Add extra delay to ensure DOM is stable after page refresh
+          Future.delayed(const Duration(milliseconds: 1000), () {
+            // Only reinitialize if editors are actually missing or broken
+            bool needsReinit = false;
+            for (final id in _monacoDivIds) {
+              final element = html.document.getElementById(id);
+              if (element == null ||
+                  (!element.hasAttribute('data-monaco-initialized') &&
+                      element.children.isEmpty)) {
+                needsReinit = true;
+                print(
+                  'Editor $id needs reinitialization after visibility change',
+                );
+                break;
+              }
+            }
+            if (needsReinit) {
+              _checkAndReinitializeEditors();
+            }
           });
         }
       });
@@ -181,7 +207,7 @@ class _IDEScreenState extends State<IDEScreen> {
   }
 
   void _checkAndReinitializeEditors() {
-    // Check if any of the Monaco editor DOM elements are missing or empty
+    // Check if any of the Monaco editor DOM elements are missing or improperly initialized
     bool needsReinit = false;
 
     for (final id in _monacoDivIds) {
@@ -190,9 +216,10 @@ class _IDEScreenState extends State<IDEScreen> {
         needsReinit = true;
         print('Editor $id DOM element is missing');
         break;
-      } else if (element.children.isEmpty) {
+      } else if (!element.hasAttribute('data-monaco-initialized') &&
+          element.children.isEmpty) {
         needsReinit = true;
-        print('Editor $id DOM element is empty');
+        print('Editor $id DOM element is empty and not initialized');
         break;
       }
     }
@@ -256,6 +283,15 @@ class _IDEScreenState extends State<IDEScreen> {
   }
 
   void _setupMonacoEditor() {
+    // Prevent multiple simultaneous initialization attempts
+    if (_isInitializingMonaco) {
+      print('Monaco initialization already in progress, skipping...');
+      return;
+    }
+
+    _isInitializingMonaco = true;
+    print('Starting Monaco editor setup...');
+
     const initialCode = '''# Welcome to Python Web IDE!
 # Write your Python code here and click Run.
 
@@ -297,6 +333,18 @@ print(hello())
         while (retries < 10) {
           final element = html.document.getElementById(id);
           if (element != null) {
+            // Check if Monaco editor already exists for this element
+            final hasMonacoInstance = element.hasAttribute(
+              'data-monaco-initialized',
+            );
+
+            if (hasMonacoInstance) {
+              print(
+                'Monaco editor already exists for $id, skipping initialization...',
+              );
+              break;
+            }
+
             // Clear any existing content to prevent duplication
             element.innerHtml = '';
             print('DOM element found and cleared for $id, initializing...');
@@ -311,14 +359,22 @@ print(hello())
           continue;
         }
 
-        await interop.initMonaco(
-          id,
-          initialCode,
-          _currentTheme,
-          _fontSize,
-          (content) => _onContentChanged(content, id),
-        );
-        print('Editor initialized: $id');
+        // Check again if element already has Monaco instance
+        final element = html.document.getElementById(id);
+        if (element != null &&
+            !element.hasAttribute('data-monaco-initialized')) {
+          await interop.initMonaco(
+            id,
+            initialCode,
+            _currentTheme,
+            _fontSize,
+            (content) => _onContentChanged(content, id),
+          );
+
+          // Mark element as initialized
+          element.setAttribute('data-monaco-initialized', 'true');
+          print('Editor initialized: $id');
+        }
 
         // Delay between initializations
         await Future.delayed(const Duration(milliseconds: 300));
@@ -330,6 +386,10 @@ print(hello())
     if (mounted) {
       setState(() => _monacoInitialized = true);
     }
+
+    // Reset the initialization flag
+    _isInitializingMonaco = false;
+    print('Monaco editor setup completed');
   }
 
   Future<void> _cleanupEditors() async {
@@ -338,10 +398,11 @@ print(hello())
       try {
         await interop.destroyEditor(_monacoDivIds[i]);
 
-        // Also clear the DOM element to prevent duplication
+        // Also clear the DOM element and remove initialization marker to prevent duplication
         final element = html.document.getElementById(_monacoDivIds[i]);
         if (element != null) {
           element.innerHtml = '';
+          element.removeAttribute('data-monaco-initialized');
           print('Cleared DOM element: ${_monacoDivIds[i]}');
         }
       } catch (error) {
@@ -930,7 +991,6 @@ print(hello())
     setState(() {
       _isGenerating = true;
       _errorMessage = null;
-      _generatedText = null;
     });
 
     try {
@@ -977,8 +1037,6 @@ print(hello())
         );
 
         setState(() {
-          _generatedText =
-              'Generated ${generatedSamples.length} code samples successfully!';
           _isGenerating = false;
           _errorMessage = null;
         });
@@ -1012,12 +1070,44 @@ print(hello())
   }
 
   // Load a prompt from history
-  void _loadPromptFromHistory(String prompt) {
+  void _loadPromptFromHistory(PromptHistoryItem item) {
     setState(() {
-      _promptController.text = prompt;
+      _promptController.text = item.prompt;
       _showHistoryPanel = false;
+
+      if (item.responses.isNotEmpty) {
+        final responses = item.responses;
+        final numberOfResponses = responses.length;
+
+        for (int i = 0; i < numberOfStudents && i < numberOfResponses; i++) {
+          final editorId = _monacoDivIds[i];
+          final response = responses[i];
+
+          interop.setEditorContent(editorId, response);
+          _lastText[editorId] = response;
+          _codeHistories[editorId]?.addState(response);
+          _updateUndoRedoCache(editorId);
+          setState(() {
+            _editorOutputs[editorId] = '';
+          });
+        }
+
+        // Fill remaining editors with the last available response (not the first)
+        if (numberOfResponses > 0 && numberOfResponses < numberOfStudents) {
+          final lastResponse = responses[numberOfResponses - 1];
+          for (int i = numberOfResponses; i < numberOfStudents; i++) {
+            final editorId = _monacoDivIds[i];
+            interop.setEditorContent(editorId, lastResponse);
+            _lastText[editorId] = lastResponse;
+            _codeHistories[editorId]?.addState(lastResponse);
+            _updateUndoRedoCache(editorId);
+            setState(() {
+              _editorOutputs[editorId] = '';
+            });
+          }
+        }
+      }
     });
-    // Focus on the input field
     _promptFocus.requestFocus();
   }
 
@@ -1085,62 +1175,6 @@ print(hello())
         ],
       ),
     );
-  }
-
-  // Add this method to display generated text
-  Widget _buildGeneratedTextDisplay() {
-    return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.green.withOpacity(0.1),
-        border: Border.all(color: Colors.green.withOpacity(0.3)),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Generated Text:',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                  color: Colors.green,
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.copy),
-                onPressed: () => _copyToClipboard(_generatedText!),
-                tooltip: 'Copy to clipboard',
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(4),
-              border: Border.all(color: Colors.grey[300]!),
-            ),
-            child: Text(
-              _generatedText!,
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 14),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Helper method for copy functionality
-  Future<void> _copyToClipboard(String text) async {
-    await Clipboard.setData(ClipboardData(text: text));
-    _showSuccessMessage('Copied to clipboard!');
   }
 
   @override
@@ -1266,8 +1300,8 @@ print(hello())
       floatingActionButton: FloatingActionButton(
         onPressed: _showHistory,
         backgroundColor: Colors.blue,
-        child: const Icon(Icons.history),
         tooltip: 'Show Prompt History',
+        child: const Icon(Icons.history),
       ),
       body: Stack(
         children: [
@@ -1275,231 +1309,264 @@ print(hello())
             children: [
               _buildPromptInputSection(),
               Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: IntrinsicHeight(
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        for (int i = 0; i < numberOfStudents; i++)
-                          Container(
-                            width:
-                                MediaQuery.of(context).size.width > 768
-                                    ? math.max(
-                                      (MediaQuery.of(context).size.width - 64) /
-                                          numberOfStudents,
-                                      300,
-                                    ) // Minimum width of 300
-                                    : 350, // Fixed width for mobile
-                            decoration: BoxDecoration(
-                              border: Border.all(
-                                color: Colors.blue.withOpacity(0.5),
-                                width: 2,
-                              ), // More visible border
-                              borderRadius: BorderRadius.circular(8),
-                              color:
-                                  Colors
-                                      .grey[850], // Background color to make containers visible
-                            ),
-                            margin: const EdgeInsets.symmetric(horizontal: 4),
-                            child: Column(
-                              key: ValueKey(
-                                'editor-column-${_monacoDivIds[i]}',
-                              ),
-                              children: [
-                                //Roll Number Header
-                                Container(
-                                  height: 40, // Make header taller
-                                  width: double.infinity,
-                                  decoration: BoxDecoration(
-                                    color: Colors.blue[700],
-                                    border: const Border(
-                                      bottom: BorderSide(color: Colors.grey),
-                                    ),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    // Calculate responsive width for each editor
+                    final availableWidth = constraints.maxWidth;
+                    final margins =
+                        (numberOfStudents - 1) * 8; // 4px margin on each side
+                    final borders =
+                        numberOfStudents * 4; // 2px border on each side
+                    final editorWidth =
+                        (availableWidth - margins - borders) / numberOfStudents;
+
+                    // Minimum width to prevent editors from becoming too narrow
+                    final minWidth = 300.0;
+                    final useHorizontalScroll = editorWidth < minWidth;
+
+                    // Calculate responsive width - always use horizontal scroll but with adaptive widths
+                    final responsiveWidth =
+                        useHorizontalScroll
+                            ? minWidth
+                            : (editorWidth - 8); // Account for margins
+
+                    return SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: IntrinsicHeight(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            for (int i = 0; i < numberOfStudents; i++)
+                              Container(
+                                width: responsiveWidth,
+                                decoration: BoxDecoration(
+                                  border: Border.all(
+                                    color: Colors.blue.withOpacity(0.5),
+                                    width: 2,
+                                  ), // More visible border
+                                  borderRadius: BorderRadius.circular(8),
+                                  color:
+                                      Colors
+                                          .grey[850], // Background color to make containers visible
+                                ),
+                                margin: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                ),
+                                child: Column(
+                                  key: ValueKey(
+                                    'editor-column-${_monacoDivIds[i]}',
                                   ),
-                                  child: Center(
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Text(
-                                          'Editor ${i + 1} - Roll No: ${_editorRollNumbers[_monacoDivIds[i]] ?? 'N/A'}',
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 16, // Larger font
+                                  children: [
+                                    //Roll Number Header
+                                    Container(
+                                      height: 40, // Make header taller
+                                      width: double.infinity,
+                                      decoration: BoxDecoration(
+                                        color: Colors.blue[700],
+                                        border: const Border(
+                                          bottom: BorderSide(
+                                            color: Colors.grey,
                                           ),
                                         ),
-                                        const SizedBox(width: 8),
-                                        // Refresh button right beside the roll number
-                                        GestureDetector(
-                                          onTap:
-                                              () => _regenerateRollNumber(
-                                                _monacoDivIds[i],
-                                              ),
-                                          child: Container(
-                                            padding: const EdgeInsets.all(2),
-                                            decoration: BoxDecoration(
-                                              color: Colors.white.withOpacity(
-                                                0.2,
-                                              ),
-                                              borderRadius:
-                                                  BorderRadius.circular(4),
-                                            ),
-                                            child: const Icon(
-                                              Icons.refresh,
-                                              color: Colors.white,
-                                              size: 14,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-
-                                // Show keyboard above editor if selected
-                                if (_keyboardPositions[_monacoDivIds[i]] ==
-                                    KeyboardPosition.aboveEditor)
-                                  _buildKeyboard(i),
-
-                                // Editor section
-                                Expanded(
-                                  key: ValueKey(
-                                    'editor-expanded-${_monacoElementIds[i]}',
-                                  ),
-                                  flex: (_editorHeightRatio * 100).toInt(),
-                                  child: Stack(
-                                    key: ValueKey(
-                                      'editor-stack-${_monacoElementIds[i]}',
-                                    ),
-                                    children: [
-                                      HtmlElementView(
-                                        key: ValueKey(_monacoElementIds[i]),
-                                        viewType: _monacoElementIds[i],
                                       ),
-                                      if (!_monacoInitialized)
-                                        const Center(
-                                          child: CircularProgressIndicator(),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-
-                                // Show keyboard between editor and output if selected and output not expanded
-                                if (_keyboardPositions[_monacoDivIds[i]] ==
-                                        KeyboardPosition.betweenEditorOutput &&
-                                    _outputExpanded[_monacoDivIds[i]] != true)
-                                  _buildKeyboard(i),
-
-                                const Divider(height: 1, color: Colors.grey),
-                                // Output section
-                                Expanded(
-                                  key: ValueKey(
-                                    'output-expanded-${_monacoElementIds[i]}',
-                                  ),
-                                  flex: _getOutputFlex(_monacoDivIds[i]),
-                                  child: Container(
-                                    key: ValueKey(
-                                      'output-container-${_monacoElementIds[i]}',
-                                    ),
-                                    color: Colors.grey[900],
-                                    padding: const EdgeInsets.all(8.0),
-                                    child: Column(
-                                      key: ValueKey(
-                                        'output-column-${_monacoElementIds[i]}',
-                                      ),
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.stretch,
-                                      children: [
-                                        Row(
+                                      child: Center(
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            const Icon(
-                                              Icons.terminal,
-                                              color: Colors.green,
+                                            Text(
+                                              'Editor ${i + 1} - Roll No: ${_editorRollNumbers[_monacoDivIds[i]] ?? 'N/A'}',
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 16, // Larger font
+                                              ),
                                             ),
                                             const SizedBox(width: 8),
-                                            Text('Output ${i + 1}'),
-                                            const Spacer(),
-                                            IconButton(
-                                              icon: const Icon(
-                                                Icons.play_arrow,
+                                            // Refresh button right beside the roll number
+                                            GestureDetector(
+                                              onTap:
+                                                  () => _regenerateRollNumber(
+                                                    _monacoDivIds[i],
+                                                  ),
+                                              child: Container(
+                                                padding: const EdgeInsets.all(
+                                                  2,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.white
+                                                      .withOpacity(0.2),
+                                                  borderRadius:
+                                                      BorderRadius.circular(4),
+                                                ),
+                                                child: const Icon(
+                                                  Icons.refresh,
+                                                  color: Colors.white,
+                                                  size: 14,
+                                                ),
                                               ),
-                                              onPressed:
-                                                  () => _runCode(
-                                                    _monacoDivIds[i],
-                                                  ),
-                                              tooltip: 'Run Code',
-                                            ),
-                                            IconButton(
-                                              icon: const Icon(Icons.clear),
-                                              onPressed:
-                                                  () => _clearOutput(
-                                                    _monacoDivIds[i],
-                                                  ),
-                                              tooltip: 'Clear Output',
-                                            ),
-                                            IconButton(
-                                              icon: Icon(
-                                                _outputExpanded[_monacoDivIds[i]] ==
-                                                        true
-                                                    ? Icons.keyboard_arrow_down
-                                                    : Icons.keyboard_arrow_up,
-                                              ),
-                                              onPressed:
-                                                  () => _toggleOutputExpansion(
-                                                    _monacoDivIds[i],
-                                                  ),
-                                              tooltip:
-                                                  _outputExpanded[_monacoDivIds[i]] ==
-                                                          true
-                                                      ? 'Collapse'
-                                                      : 'Expand',
                                             ),
                                           ],
                                         ),
-                                        const Divider(color: Colors.grey),
-                                        Expanded(
-                                          child: SingleChildScrollView(
-                                            child: SelectableText(
-                                              _editorOutputs[_monacoDivIds[i]]
-                                                          ?.isEmpty ??
-                                                      true
-                                                  ? 'Output will appear here...'
-                                                  : _editorOutputs[_monacoDivIds[i]] ??
-                                                      '',
-                                              style: TextStyle(
-                                                color:
-                                                    (_editorOutputs[_monacoDivIds[i]] ??
-                                                                '')
-                                                            .contains('Error')
-                                                        ? Colors.red
-                                                        : Colors.white,
-                                                fontFamily: 'monospace',
-                                                fontSize: 14,
+                                      ),
+                                    ),
+
+                                    // Show keyboard above editor if selected
+                                    if (_keyboardPositions[_monacoDivIds[i]] ==
+                                        KeyboardPosition.aboveEditor)
+                                      _buildKeyboard(i),
+
+                                    // Editor section
+                                    Expanded(
+                                      key: ValueKey(
+                                        'editor-expanded-${_monacoElementIds[i]}',
+                                      ),
+                                      flex: (_editorHeightRatio * 100).toInt(),
+                                      child: Stack(
+                                        key: ValueKey(
+                                          'editor-stack-${_monacoElementIds[i]}',
+                                        ),
+                                        children: [
+                                          HtmlElementView(
+                                            key: ValueKey(_monacoElementIds[i]),
+                                            viewType: _monacoElementIds[i],
+                                          ),
+                                          if (!_monacoInitialized)
+                                            const Center(
+                                              child:
+                                                  CircularProgressIndicator(),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+
+                                    // Show keyboard between editor and output if selected and output not expanded
+                                    if (_keyboardPositions[_monacoDivIds[i]] ==
+                                            KeyboardPosition
+                                                .betweenEditorOutput &&
+                                        _outputExpanded[_monacoDivIds[i]] !=
+                                            true)
+                                      _buildKeyboard(i),
+
+                                    const Divider(
+                                      height: 1,
+                                      color: Colors.grey,
+                                    ),
+                                    // Output section
+                                    Expanded(
+                                      key: ValueKey(
+                                        'output-expanded-${_monacoElementIds[i]}',
+                                      ),
+                                      flex: _getOutputFlex(_monacoDivIds[i]),
+                                      child: Container(
+                                        key: ValueKey(
+                                          'output-container-${_monacoElementIds[i]}',
+                                        ),
+                                        color: Colors.grey[900],
+                                        padding: const EdgeInsets.all(8.0),
+                                        child: Column(
+                                          key: ValueKey(
+                                            'output-column-${_monacoElementIds[i]}',
+                                          ),
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.stretch,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                const Icon(
+                                                  Icons.terminal,
+                                                  color: Colors.green,
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Text('Output ${i + 1}'),
+                                                const Spacer(),
+                                                IconButton(
+                                                  icon: const Icon(
+                                                    Icons.play_arrow,
+                                                  ),
+                                                  onPressed:
+                                                      () => _runCode(
+                                                        _monacoDivIds[i],
+                                                      ),
+                                                  tooltip: 'Run Code',
+                                                ),
+                                                IconButton(
+                                                  icon: const Icon(Icons.clear),
+                                                  onPressed:
+                                                      () => _clearOutput(
+                                                        _monacoDivIds[i],
+                                                      ),
+                                                  tooltip: 'Clear Output',
+                                                ),
+                                                IconButton(
+                                                  icon: Icon(
+                                                    _outputExpanded[_monacoDivIds[i]] ==
+                                                            true
+                                                        ? Icons
+                                                            .keyboard_arrow_down
+                                                        : Icons
+                                                            .keyboard_arrow_up,
+                                                  ),
+                                                  onPressed:
+                                                      () =>
+                                                          _toggleOutputExpansion(
+                                                            _monacoDivIds[i],
+                                                          ),
+                                                  tooltip:
+                                                      _outputExpanded[_monacoDivIds[i]] ==
+                                                              true
+                                                          ? 'Collapse'
+                                                          : 'Expand',
+                                                ),
+                                              ],
+                                            ),
+                                            const Divider(color: Colors.grey),
+                                            Expanded(
+                                              child: SingleChildScrollView(
+                                                child: SelectableText(
+                                                  _editorOutputs[_monacoDivIds[i]]
+                                                              ?.isEmpty ??
+                                                          true
+                                                      ? 'Output will appear here...'
+                                                      : _editorOutputs[_monacoDivIds[i]] ??
+                                                          '',
+                                                  style: TextStyle(
+                                                    color:
+                                                        (_editorOutputs[_monacoDivIds[i]] ??
+                                                                    '')
+                                                                .contains(
+                                                                  'Error',
+                                                                )
+                                                            ? Colors.red
+                                                            : Colors.white,
+                                                    fontFamily: 'monospace',
+                                                    fontSize: 14,
+                                                  ),
+                                                ),
                                               ),
                                             ),
-                                          ),
+                                            if (_isLoading)
+                                              const LinearProgressIndicator(
+                                                minHeight: 2,
+                                              ),
+                                          ],
                                         ),
-                                        if (_isLoading)
-                                          const LinearProgressIndicator(
-                                            minHeight: 2,
-                                          ),
-                                      ],
+                                      ),
                                     ),
-                                  ),
-                                ),
 
-                                // Show keyboard below output if selected and output not expanded
-                                if (_keyboardPositions[_monacoDivIds[i]] ==
-                                        KeyboardPosition.belowOutput &&
-                                    _outputExpanded[_monacoDivIds[i]] != true)
-                                  _buildKeyboard(i),
-                              ],
-                            ),
-                          ),
-                      ], // Close the Row's children array
-                    ),
-                  ),
+                                    // Show keyboard below output if selected and output not expanded
+                                    if (_keyboardPositions[_monacoDivIds[i]] ==
+                                            KeyboardPosition.belowOutput &&
+                                        _outputExpanded[_monacoDivIds[i]] !=
+                                            true)
+                                      _buildKeyboard(i),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ),
             ],
@@ -1510,15 +1577,35 @@ print(hello())
               child: Container(
                 color: Colors.black.withOpacity(0.5),
                 child: Center(
-                  child: Container(
-                    constraints: BoxConstraints(
-                      maxWidth: MediaQuery.of(context).size.width * 0.9,
-                      maxHeight: MediaQuery.of(context).size.height * 0.8,
-                    ),
-                    child: PromptHistoryWidget(
-                      onPromptSelected: _loadPromptFromHistory,
-                      onClose: _hideHistory,
-                    ),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      return Container(
+                        constraints: BoxConstraints(
+                          maxWidth: constraints.maxWidth * 0.9,
+                          maxHeight: constraints.maxHeight * 0.8,
+                        ),
+                        child: PromptHistoryWidget(
+                          onPromptSelected: (String prompt) {
+                            // Find the full PromptHistoryItem by prompt text
+                            // This is a temporary workaround - ideally the widget should pass the full item
+                            PromptHistoryService.getHistory().then((items) {
+                              final item = items.firstWhere(
+                                (item) => item.prompt == prompt,
+                                orElse:
+                                    () => PromptHistoryItem(
+                                      id: '',
+                                      prompt: prompt,
+                                      timestamp: DateTime.now(),
+                                      responses: [],
+                                    ),
+                              );
+                              _loadPromptFromHistory(item);
+                            });
+                          },
+                          onClose: _hideHistory,
+                        ),
+                      );
+                    },
                   ),
                 ),
               ),
