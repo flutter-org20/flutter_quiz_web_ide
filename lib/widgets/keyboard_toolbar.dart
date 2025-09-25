@@ -16,6 +16,9 @@ class KeyboardToolbar extends StatefulWidget {
   final VoidCallback onToggleAutocomplete;
   final bool isAutocompleteEnabled;
   final bool isPrettifying; // Add prettifying state
+  final Function(String, String)?
+  onMenuSelection; // Updated to include editorId
+  final String editorId; // Add editorId parameter
 
   const KeyboardToolbar({
     super.key,
@@ -34,6 +37,8 @@ class KeyboardToolbar extends StatefulWidget {
     required this.onToggleAutocomplete,
     required this.isAutocompleteEnabled,
     this.isPrettifying = false, // Default to false
+    this.onMenuSelection, // Add this
+    required this.editorId, // Add this as required
   });
 
   @override
@@ -52,8 +57,9 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
 
   final List<List<String>> _digitRows = [
     ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
-    ['+', '-', '*', '/', '=', '(', ')', '[', ']', '{'],
-    ['}', ':', ';', '"', "'", ',', '.', '?', '!', '%'],
+    ['(', ')', '[', ']', '{', '}', '<', '>', '=', '!'],
+    ['+', '-', '*', '/', '\\', '_', '.', ',', ':', ';'],
+    ['"', "'", '@', '#', '%', '&', '|', '^', '?', '~'],
   ];
 
   final List<List<String>> _specialRows = [
@@ -61,6 +67,23 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
     ['class', 'import', 'from', 'return', 'print', 'len'],
     ['True', 'False', 'None', 'and', 'or', 'not'],
   ];
+
+  void _handleMenuSelection(String value) {
+    // Call the parent widget's callback if provided
+    widget.onMenuSelection?.call(value, widget.editorId);
+
+    switch (value) {
+      case 'above':
+        print('Keyboard position: Above Editor');
+        break;
+      case 'between':
+        print('Keyboard position: Between Editor and Output');
+        break;
+      case 'below':
+        print('Keyboard position: Below Output');
+        break;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -137,9 +160,80 @@ class _KeyboardToolbarState extends State<KeyboardToolbar> {
             const SizedBox(width: 8),
             if (_currentMode == 0) // Only show caps lock for letters
               _buildCapsButton(),
+            _buildMenuButton(),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildMenuButton() {
+    return PopupMenuButton<String>(
+      icon: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: BoxDecoration(
+          color: const Color(0xFF3C3C3C),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: const Icon(Icons.more_vert, color: Colors.white70, size: 16),
+      ),
+      color: const Color(0xFF2D2D30),
+      offset: const Offset(0, -120),
+      onSelected: (String value) {
+        // Handle menu selection
+        _handleMenuSelection(value);
+      },
+      itemBuilder:
+          (BuildContext context) => <PopupMenuEntry<String>>[
+            const PopupMenuItem<String>(
+              value: 'above',
+              child: ListTile(
+                leading: Icon(
+                  Icons.keyboard_arrow_up,
+                  color: Colors.white70,
+                  size: 20,
+                ),
+                title: Text(
+                  'Above Editor',
+                  style: TextStyle(color: Colors.white),
+                ),
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+              ),
+            ),
+            const PopupMenuItem<String>(
+              value: 'between',
+              child: ListTile(
+                leading: Icon(
+                  Icons.keyboard_double_arrow_down,
+                  color: Colors.white70,
+                  size: 20,
+                ),
+                title: Text(
+                  'Between Editor and Output',
+                  style: TextStyle(color: Colors.white),
+                ),
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+              ),
+            ),
+            const PopupMenuItem<String>(
+              value: 'below',
+              child: ListTile(
+                leading: Icon(
+                  Icons.keyboard_arrow_down,
+                  color: Colors.white70,
+                  size: 20,
+                ),
+                title: Text(
+                  'Below Output',
+                  style: TextStyle(color: Colors.white),
+                ),
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+              ),
+            ),
+          ],
     );
   }
 

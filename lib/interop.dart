@@ -167,10 +167,21 @@ Future<void> prettifyCode(String editorId) async {
 @JS('monacoInterop.setAutocomplete')
 external void _setAutocomplete(String editorId, bool enabled);
 
+@JS('monacoInterop.triggerAutocomplete')
+external void _triggerAutocomplete(String editorId);
+
 Future<void> setAutocomplete(String editorId, bool enabled) async {
   try {
     _setAutocomplete(editorId, enabled);
   } catch (e) {
     print('Failed to set autocomplete in editor $editorId: $e');
+  }
+}
+
+Future<void> triggerAutocomplete(String editorId) async {
+  try {
+    _triggerAutocomplete(editorId);
+  } catch (e) {
+    print('Failed to trigger autocomplete in editor $editorId: $e');
   }
 }

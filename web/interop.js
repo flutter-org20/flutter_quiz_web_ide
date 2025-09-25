@@ -65,6 +65,133 @@ function loadMonaco() {
 
 console.log('Monaco Interop JavaScript loaded');
 
+// Pre-define Python suggestions for faster lookup (defined once globally)
+const pythonSuggestions = [
+  // Keywords
+  { label: 'def', kind: 14, insertText: 'def ${1:function_name}(${2:parameters}):\n    ${3:pass}', insertTextRules: 4 },
+  { label: 'class', kind: 14, insertText: 'class ${1:ClassName}:\n    def __init__(self${2:, args}):\n        ${3:pass}', insertTextRules: 4 },
+  { label: 'if', kind: 14, insertText: 'if ${1:condition}:\n    ${2:pass}', insertTextRules: 4 },
+  { label: 'elif', kind: 14, insertText: 'elif ${1:condition}:\n    ${2:pass}', insertTextRules: 4 },
+  { label: 'else', kind: 14, insertText: 'else:\n    ${1:pass}', insertTextRules: 4 },
+  { label: 'for', kind: 14, insertText: 'for ${1:item} in ${2:iterable}:\n    ${3:pass}', insertTextRules: 4 },
+  { label: 'while', kind: 14, insertText: 'while ${1:condition}:\n    ${2:pass}', insertTextRules: 4 },
+  { label: 'try', kind: 14, insertText: 'try:\n    ${1:pass}\nexcept ${2:Exception} as ${3:e}:\n    ${4:pass}', insertTextRules: 4 },
+  { label: 'except', kind: 14, insertText: 'except ${1:Exception} as ${2:e}:\n    ${3:pass}', insertTextRules: 4 },
+  { label: 'finally', kind: 14, insertText: 'finally:\n    ${1:pass}', insertTextRules: 4 },
+  { label: 'with', kind: 14, insertText: 'with ${1:expression} as ${2:variable}:\n    ${3:pass}', insertTextRules: 4 },
+  { label: 'import', kind: 14, insertText: 'import ${1:module}', insertTextRules: 4 },
+  { label: 'from', kind: 14, insertText: 'from ${1:module} import ${2:name}', insertTextRules: 4 },
+  { label: 'return', kind: 14, insertText: 'return ${1:value}', insertTextRules: 4 },
+  { label: 'yield', kind: 14, insertText: 'yield ${1:value}', insertTextRules: 4 },
+  { label: 'break', kind: 14, insertText: 'break' },
+  { label: 'continue', kind: 14, insertText: 'continue' },
+  { label: 'pass', kind: 14, insertText: 'pass' },
+  { label: 'lambda', kind: 14, insertText: 'lambda ${1:args}: ${2:expression}', insertTextRules: 4 },
+  { label: 'async', kind: 14, insertText: 'async def ${1:function_name}(${2:parameters}):\n    ${3:pass}', insertTextRules: 4 },
+  { label: 'await', kind: 14, insertText: 'await ${1:expression}', insertTextRules: 4 },
+  { label: 'global', kind: 14, insertText: 'global ${1:variable}', insertTextRules: 4 },
+  { label: 'nonlocal', kind: 14, insertText: 'nonlocal ${1:variable}', insertTextRules: 4 },
+  { label: 'raise', kind: 14, insertText: 'raise ${1:Exception}', insertTextRules: 4 },
+  { label: 'assert', kind: 14, insertText: 'assert ${1:condition}', insertTextRules: 4 },
+  { label: 'del', kind: 14, insertText: 'del ${1:variable}', insertTextRules: 4 },
+  
+  // Additional 'p' keywords and decorators
+  { label: 'property', kind: 10, insertText: '@property\ndef ${1:name}(self):\n    return ${2:value}', insertTextRules: 4 },
+  { label: 'partial', kind: 3, insertText: 'partial(${1:func}, ${2:args})', insertTextRules: 4 },
+  { label: 'pathlib', kind: 9, insertText: 'from pathlib import Path', insertTextRules: 4 },
+  
+  // Built-in functions
+  { label: 'print', kind: 3, insertText: 'print(${1:value})', insertTextRules: 4 },
+  { label: 'len', kind: 3, insertText: 'len(${1:obj})', insertTextRules: 4 },
+  { label: 'range', kind: 3, insertText: 'range(${1:stop})', insertTextRules: 4 },
+  { label: 'enumerate', kind: 3, insertText: 'enumerate(${1:iterable})', insertTextRules: 4 },
+  { label: 'zip', kind: 3, insertText: 'zip(${1:iterable1}, ${2:iterable2})', insertTextRules: 4 },
+  { label: 'map', kind: 3, insertText: 'map(${1:function}, ${2:iterable})', insertTextRules: 4 },
+  { label: 'filter', kind: 3, insertText: 'filter(${1:function}, ${2:iterable})', insertTextRules: 4 },
+  { label: 'sorted', kind: 3, insertText: 'sorted(${1:iterable})', insertTextRules: 4 },
+  { label: 'sum', kind: 3, insertText: 'sum(${1:iterable})', insertTextRules: 4 },
+  { label: 'max', kind: 3, insertText: 'max(${1:iterable})', insertTextRules: 4 },
+  { label: 'min', kind: 3, insertText: 'min(${1:iterable})', insertTextRules: 4 },
+  { label: 'abs', kind: 3, insertText: 'abs(${1:number})', insertTextRules: 4 },
+  { label: 'round', kind: 3, insertText: 'round(${1:number})', insertTextRules: 4 },
+  { label: 'input', kind: 3, insertText: 'input(${1:prompt})', insertTextRules: 4 },
+  { label: 'open', kind: 3, insertText: 'open(${1:filename}, ${2:mode})', insertTextRules: 4 },
+  { label: 'type', kind: 3, insertText: 'type(${1:obj})', insertTextRules: 4 },
+  { label: 'isinstance', kind: 3, insertText: 'isinstance(${1:obj}, ${2:type})', insertTextRules: 4 },
+  { label: 'hasattr', kind: 3, insertText: 'hasattr(${1:obj}, ${2:attr})', insertTextRules: 4 },
+  { label: 'getattr', kind: 3, insertText: 'getattr(${1:obj}, ${2:attr})', insertTextRules: 4 },
+  { label: 'setattr', kind: 3, insertText: 'setattr(${1:obj}, ${2:attr}, ${3:value})', insertTextRules: 4 },
+  { label: 'pow', kind: 3, insertText: 'pow(${1:base}, ${2:exp})', insertTextRules: 4 },
+  
+  // Built-in types
+  { label: 'str', kind: 7, insertText: 'str(${1:obj})', insertTextRules: 4 },
+  { label: 'int', kind: 7, insertText: 'int(${1:obj})', insertTextRules: 4 },
+  { label: 'float', kind: 7, insertText: 'float(${1:obj})', insertTextRules: 4 },
+  { label: 'bool', kind: 7, insertText: 'bool(${1:obj})', insertTextRules: 4 },
+  { label: 'list', kind: 7, insertText: 'list(${1:iterable})', insertTextRules: 4 },
+  { label: 'tuple', kind: 7, insertText: 'tuple(${1:iterable})', insertTextRules: 4 },
+  { label: 'dict', kind: 7, insertText: 'dict(${1:mapping})', insertTextRules: 4 },
+  { label: 'set', kind: 7, insertText: 'set(${1:iterable})', insertTextRules: 4 },
+  
+  // Constants
+  { label: 'True', kind: 21, insertText: 'True' },
+  { label: 'False', kind: 21, insertText: 'False' },
+  { label: 'None', kind: 21, insertText: 'None' },
+  
+  // Magic methods
+  { label: '__init__', kind: 2, insertText: 'def __init__(self${1:, args}):\n    ${2:pass}', insertTextRules: 4 },
+  { label: '__str__', kind: 2, insertText: 'def __str__(self):\n    return ${1:"string representation"}', insertTextRules: 4 },
+  { label: '__repr__', kind: 2, insertText: 'def __repr__(self):\n    return ${1:"repr string"}', insertTextRules: 4 },
+  { label: '__len__', kind: 2, insertText: 'def __len__(self):\n    return ${1:length}', insertTextRules: 4 }
+];
+
+// Global flag to ensure completion provider is registered only once
+let pythonCompletionProviderRegistered = false;
+
+// Register Python completion provider globally (only once)
+function registerPythonCompletionProvider() {
+  if (pythonCompletionProviderRegistered || !window.monaco) {
+    return;
+  }
+  
+  monaco.languages.registerCompletionItemProvider('python', {
+    provideCompletionItems: function(model, position) {
+      console.log('Completion provider called at position:', position);
+      
+      const word = model.getWordUntilPosition(position);
+      const range = {
+        startLineNumber: position.lineNumber,
+        endLineNumber: position.lineNumber,
+        startColumn: word.startColumn,
+        endColumn: word.endColumn
+      };
+
+      // Get the partial word being typed (convert to lowercase for case-insensitive matching)
+      const partialWord = word.word.toLowerCase();
+      console.log('Partial word:', partialWord);
+
+      // Quick return for empty input - show all suggestions
+      if (partialWord === '') {
+        console.log('Returning all suggestions');
+        return { 
+          suggestions: pythonSuggestions.map(s => ({...s, range}))
+        };
+      }
+
+      // Fast filtering using built-in array methods
+      const filteredSuggestions = pythonSuggestions
+        .filter(suggestion => suggestion.label.toLowerCase().startsWith(partialWord))
+        .map(suggestion => ({...suggestion, range}));
+
+      console.log('Filtered suggestions:', filteredSuggestions.length);
+      return { suggestions: filteredSuggestions };
+    }
+  });
+  
+  pythonCompletionProviderRegistered = true;
+  console.log('Python completion provider registered');
+}
+
 // --- Monaco Interop ---
 window.monacoInterop = {
   init: async (containerId, initialCode, theme, fontSize, onContentChanged) => {
@@ -95,6 +222,50 @@ window.monacoInterop = {
         scrollBeyondLastLine: false,
         renderLineHighlight: 'line',
         selectOnLineNumbers: true,
+        // Enhanced autocomplete settings for instant response
+        quickSuggestions: true, // Enable for all contexts
+        quickSuggestionsDelay: 0, // Instant suggestions
+        suggestOnTriggerCharacters: true,
+        acceptSuggestionOnCommitCharacter: true,
+        acceptSuggestionOnEnter: 'on',
+        wordBasedSuggestions: false, // Disable default word-based suggestions to prevent duplicates
+        tabCompletion: 'on',
+        parameterHints: { 
+          enabled: true,
+          cycle: true
+        },
+        suggest: {
+          showKeywords: true,
+          showSnippets: true,
+          showFunctions: true,
+          showConstructors: true,
+          showFields: true,
+          showVariables: true,
+          showClasses: true,
+          showStructs: true,
+          showInterfaces: true,
+          showModules: true,
+          showProperties: true,
+          showEvents: true,
+          showOperators: true,
+          showUnits: true,
+          showValues: true,
+          showConstants: true,
+          showEnums: true,
+          showEnumMembers: true,
+          showWords: false, // Disable word suggestions to avoid duplicates
+          showColors: true,
+          showFiles: true,
+          showReferences: true,
+          showFolders: true,
+          showTypeParameters: true,
+          filterGraceful: true,
+          snippetsPreventQuickSuggestions: false,
+          insertMode: 'insert',
+          localityBonus: true,
+          delay: 0, // No delay for suggestions
+          maxVisibleSuggestions: 12 // Show more suggestions
+        },
         // Disable system keyboard on mobile
         readOnly: false,
         contextmenu: false,
@@ -104,6 +275,9 @@ window.monacoInterop = {
 
       // Store the editor instance
       monacoEditors[containerId] = editor;
+
+      // Register the Python completion provider globally (only once)
+      registerPythonCompletionProvider();
 
       // Prevent system keyboard on mobile devices
       const editorDomNode = editor.getDomNode();
@@ -137,8 +311,22 @@ window.monacoInterop = {
       }
 
       // Set up content change listener
-      editor.onDidChangeModelContent(() => {
+      editor.onDidChangeModelContent((e) => {
         onContentChanged(editor.getValue());
+        
+        // Manually trigger suggestions on content change for better responsiveness
+        const position = editor.getPosition();
+        if (position) {
+          const model = editor.getModel();
+          const word = model.getWordUntilPosition(position);
+          
+          // Trigger suggestions if user is typing a word (not deleting or just whitespace)
+          if (word.word.length > 0 && e.changes.some(change => change.text.length > 0)) {
+            setTimeout(() => {
+              editor.trigger('keyboard', 'editor.action.triggerSuggest', {});
+            }, 10);
+          }
+        }
       });
 
       return editor;
@@ -295,12 +483,20 @@ window.monacoInterop = {
     const editor = monacoEditors[containerId];
     if (editor) {
       editor.updateOptions({
-        quickSuggestions: enabled,
+        quickSuggestions: enabled ? {
+          other: true,
+          comments: false,
+          strings: false
+        } : false,
+        quickSuggestionsDelay: 0, // Instant suggestions
         suggestOnTriggerCharacters: enabled,
         acceptSuggestionOnCommitCharacter: enabled,
         acceptSuggestionOnEnter: enabled ? 'on' : 'off',
         wordBasedSuggestions: enabled,
-        parameterHints: { enabled: enabled },
+        parameterHints: { 
+          enabled: enabled,
+          cycle: enabled
+        },
         suggest: {
           showKeywords: enabled,
           showSnippets: enabled,
@@ -325,9 +521,28 @@ window.monacoInterop = {
           showFiles: enabled,
           showReferences: enabled,
           showFolders: enabled,
-          showTypeParameters: enabled
+          showTypeParameters: enabled,
+          filterGraceful: enabled,
+          snippetsPreventQuickSuggestions: false,
+          insertMode: 'insert',
+          localityBonus: enabled,
+          delay: 0, // No delay for suggestions
+          maxVisibleSuggestions: 12 // Show more suggestions
         }
       });
+      
+      // Trigger suggestions to show immediately when enabling
+      if (enabled) {
+        editor.trigger('keyboard', 'editor.action.triggerSuggest', {});
+      }
+    }
+  },
+
+  // Manual trigger for autocomplete suggestions
+  triggerAutocomplete: (containerId) => {
+    const editor = monacoEditors[containerId];
+    if (editor) {
+      editor.trigger('keyboard', 'editor.action.triggerSuggest', {});
     }
   }
 };
