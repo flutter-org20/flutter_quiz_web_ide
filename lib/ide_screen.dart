@@ -69,6 +69,9 @@ class _IDEScreenState extends State<IDEScreen> {
   // Output expansion state - per editor
   final Map<String, bool> _outputExpanded = {};
 
+  // Prevent multiple simultaneous Monaco initialization attempts
+  bool _isInitializingMonaco = false;
+
   // Input management
   final TextEditingController _promptController = TextEditingController();
   final FocusNode _promptFocus = FocusNode();
@@ -76,7 +79,6 @@ class _IDEScreenState extends State<IDEScreen> {
   // State management
   bool _isGenerating = false;
   String? _errorMessage;
-  String? _generatedText;
 
   // History management
   bool _showHistoryPanel = false;
@@ -281,6 +283,15 @@ class _IDEScreenState extends State<IDEScreen> {
   }
 
   void _setupMonacoEditor() {
+    // Prevent multiple simultaneous initialization attempts
+    if (_isInitializingMonaco) {
+      print('Monaco initialization already in progress, skipping...');
+      return;
+    }
+
+    _isInitializingMonaco = true;
+    print('Starting Monaco editor setup...');
+
     const initialCode = '''# Welcome to Python Web IDE!
 # Write your Python code here and click Run.
 
@@ -375,6 +386,10 @@ print(hello())
     if (mounted) {
       setState(() => _monacoInitialized = true);
     }
+
+    // Reset the initialization flag
+    _isInitializingMonaco = false;
+    print('Monaco editor setup completed');
   }
 
   Future<void> _cleanupEditors() async {
@@ -976,7 +991,6 @@ print(hello())
     setState(() {
       _isGenerating = true;
       _errorMessage = null;
-      _generatedText = null;
     });
 
     try {
@@ -1023,8 +1037,6 @@ print(hello())
         );
 
         setState(() {
-          _generatedText =
-              'Generated ${generatedSamples.length} code samples successfully!';
           _isGenerating = false;
           _errorMessage = null;
         });
@@ -1163,62 +1175,6 @@ print(hello())
         ],
       ),
     );
-  }
-
-  // Add this method to display generated text
-  Widget _buildGeneratedTextDisplay() {
-    return Container(
-      margin: const EdgeInsets.all(16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.green.withOpacity(0.1),
-        border: Border.all(color: Colors.green.withOpacity(0.3)),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Generated Text:',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                  color: Colors.green,
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.copy),
-                onPressed: () => _copyToClipboard(_generatedText!),
-                tooltip: 'Copy to clipboard',
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(4),
-              border: Border.all(color: Colors.grey[300]!),
-            ),
-            child: Text(
-              _generatedText!,
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 14),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // Helper method for copy functionality
-  Future<void> _copyToClipboard(String text) async {
-    await Clipboard.setData(ClipboardData(text: text));
-    _showSuccessMessage('Copied to clipboard!');
   }
 
   @override
