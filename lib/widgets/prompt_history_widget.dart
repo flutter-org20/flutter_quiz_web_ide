@@ -104,7 +104,7 @@ class _PromptHistoryWidgetState extends State<PromptHistoryWidget> {
                   Container(
                     padding: const EdgeInsets.all(12),
                     decoration: BoxDecoration(
-                      color: Colors.grey[100],
+                      color: Colors.blueGrey,
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
@@ -114,6 +114,7 @@ class _PromptHistoryWidgetState extends State<PromptHistoryWidget> {
                       style: const TextStyle(
                         fontStyle: FontStyle.italic,
                         fontSize: 14,
+                        color: Colors.black38,
                       ),
                     ),
                   ),
@@ -293,7 +294,7 @@ class _PromptHistoryWidgetState extends State<PromptHistoryWidget> {
                       borderRadius: BorderRadius.circular(10),
                     ),
                     filled: true,
-                    fillColor: Colors.white,
+                    fillColor: Colors.grey,
                   ),
                 ),
               ],
