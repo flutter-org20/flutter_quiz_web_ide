@@ -92,28 +92,30 @@ class _QuizScreenState extends State<QuizScreen> {
   }
 
   void _updateStudentCount(int newCount) {
-    setState(() {
-      final oldCount = numberOfStudents;
-      numberOfStudents = newCount;
-
-      // If increasing student count, add new students
-      if (newCount > oldCount) {
-        for (int i = oldCount + 1; i <= newCount; i++) {
-          _quizzes[i] = null;
-          _isGeneratingQuiz[i] = false;
-        }
-        _assignRollNumbers(); // Reassign to include new students
-      }
-      // If decreasing student count, clean up removed students
-      else if (newCount < oldCount) {
-        for (int i = newCount + 1; i <= oldCount; i++) {
-          _usedRollNumbers.remove(_rollNumbers[i]);
-          _rollNumbers.remove(i);
-          _quizzes.remove(i);
-          _isGeneratingQuiz.remove(i);
-        }
-      }
+    // Use a deferred update to avoid race conditions during widget disposal
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      setState(() {
+        numberOfStudents = newCount;
+        // Complete state reset when student count changes
+        _resetAllQuizState();
+      });
     });
+  }
+
+  void _resetAllQuizState() {
+    // Clear all existing state
+    _quizzes.clear();
+    _isGeneratingQuiz.clear();
+    _rollNumbers.clear();
+    _usedRollNumbers.clear();
+
+    // Reset error state
+    _errorMessage = null;
+    _isGenerating = false;
+
+    // Initialize fresh state for new student count
+    _assignRollNumbers();
+    _initializeQuizzes();
   }
 
   void _initializeQuizzes() {
@@ -441,12 +443,22 @@ class _QuizScreenState extends State<QuizScreen> {
   Widget _buildQuizGrid() {
     return LayoutBuilder(
       builder: (context, constraints) {
+        // Null safety check - ensure we have valid data before rendering
+        if (_rollNumbers.isEmpty || _rollNumbers.length < numberOfStudents) {
+          return const Center(child: CircularProgressIndicator());
+        }
+
         // Handle single student case with centered layout
         if (numberOfStudents == 1) {
+          // Ensure roll number exists for student 1
+          if (!_rollNumbers.containsKey(1)) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
           return AnimatedSwitcher(
             duration: const Duration(milliseconds: 300),
             child: Center(
-              key: ValueKey('single-student'),
+              key: ValueKey('single-student-${_rollNumbers[1]}'),
               child: Container(
                 constraints: BoxConstraints(
                   maxWidth: 600,
@@ -454,6 +466,7 @@ class _QuizScreenState extends State<QuizScreen> {
                 ),
                 padding: const EdgeInsets.all(16.0),
                 child: QuizPanel(
+                  key: ValueKey('panel-1-${_rollNumbers[1]}'),
                   rollNumber: _rollNumbers[1]!,
                   panelNumber: 1,
                   quiz: _quizzes[1],
@@ -502,31 +515,49 @@ class _QuizScreenState extends State<QuizScreen> {
               child: ScaleTransition(scale: animation, child: child),
             );
           },
-          child: GridView.builder(
-            key: ValueKey('grid-$numberOfStudents'),
-            padding: const EdgeInsets.all(8.0),
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: crossAxisCount,
-              childAspectRatio: aspectRatio,
-              crossAxisSpacing: 8,
-              mainAxisSpacing: 8,
+          child: Container(
+            key: ValueKey('grid-$numberOfStudents-${_rollNumbers.hashCode}'),
+            child: GridView.builder(
+              padding: const EdgeInsets.all(8.0),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: crossAxisCount,
+                childAspectRatio: aspectRatio,
+                crossAxisSpacing: 8,
+                mainAxisSpacing: 8,
+              ),
+              itemCount: numberOfStudents,
+              itemBuilder: (context, index) {
+                final studentNumber = index + 1;
+
+                // Null safety check - ensure roll number exists for this student
+                if (!_rollNumbers.containsKey(studentNumber)) {
+                  return Container(
+                    margin: const EdgeInsets.all(8.0),
+                    child: const Card(
+                      child: Center(child: CircularProgressIndicator()),
+                    ),
+                  );
+                }
+
+                return AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeInOut,
+                  child: QuizPanel(
+                    key: ValueKey(
+                      'panel-$studentNumber-${_rollNumbers[studentNumber]}',
+                    ),
+                    rollNumber: _rollNumbers[studentNumber]!,
+                    panelNumber: studentNumber,
+                    quiz: _quizzes[studentNumber],
+                    onQuizUpdated:
+                        (quiz) => _onQuizUpdated(studentNumber, quiz),
+                    isLoading: _isGeneratingQuiz[studentNumber] ?? false,
+                    onRollNumberRefresh:
+                        () => _refreshRollNumber(studentNumber),
+                  ),
+                );
+              },
             ),
-            itemCount: numberOfStudents,
-            itemBuilder: (context, index) {
-              final studentNumber = index + 1;
-              return AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeInOut,
-                child: QuizPanel(
-                  rollNumber: _rollNumbers[studentNumber]!,
-                  panelNumber: studentNumber,
-                  quiz: _quizzes[studentNumber],
-                  onQuizUpdated: (quiz) => _onQuizUpdated(studentNumber, quiz),
-                  isLoading: _isGeneratingQuiz[studentNumber] ?? false,
-                  onRollNumberRefresh: () => _refreshRollNumber(studentNumber),
-                ),
-              );
-            },
           ),
         );
       },
