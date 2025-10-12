@@ -1,5 +1,5 @@
-name: python_web_ide
-description: "A new Flutter project."
+name: quiz_web_app
+description: "AI-powered Quiz Web App supporting multiple question types generated from pollinations.ai"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: "none" # Remove this line if you wish to publish to pub.dev
@@ -32,17 +32,7 @@ dependencies:
     sdk: flutter
   http: ^1.1.0
   shared_preferences: ^2.2.2
-
-  # The following adds the Cupertino Icons font to your application.
-  # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
-  code_text_field: ^1.1.0
-  webview_flutter_web: ^0.2.3+4
-  webview_flutter: ^4.13.0
-  flutter_highlight: ^0.7.0
-  highlight: ^0.7.0
-  provider: ^6.1.5+1
-  js_interop: ^0.0.1
 
 dev_dependencies:
   flutter_test:

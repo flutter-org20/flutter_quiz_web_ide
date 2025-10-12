@@ -1,23 +1,23 @@
 import 'package:flutter/material.dart';
-import 'package:python_web_ide/ide_screen.dart';
+import 'package:quiz_web_app/quiz_screen.dart';
 
 void main() {
-  runApp(const PythonWebIDE());
+  runApp(const QuizWebApp());
 }
 
-class PythonWebIDE extends StatelessWidget {
-  const PythonWebIDE({super.key});
+class QuizWebApp extends StatelessWidget {
+  const QuizWebApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Python Web IDE',
+      title: 'AI Quiz Web App',
       theme: ThemeData(
         primarySwatch: Colors.blue,
         useMaterial3: true,
         brightness: Brightness.dark,
       ),
-      home: const IDEScreen(),
+      home: const QuizScreen(),
       debugShowCheckedModeBanner: false,
     );
   }
