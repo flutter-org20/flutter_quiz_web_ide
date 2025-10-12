@@ -19,7 +19,7 @@ class _QuizScreenState extends State<QuizScreen> {
   final Map<int, bool> _isGeneratingQuiz = {};
 
   // Student management
-  int numberOfStudents = 4;
+  int numberOfStudents = 1; // Default to 1 student
   final Map<int, int> _rollNumbers = {};
   final Set<int> _usedRollNumbers = {};
   final math.Random _random = math.Random();
@@ -41,17 +41,31 @@ class _QuizScreenState extends State<QuizScreen> {
   }
 
   void _assignRollNumbers() {
+    // Preserve existing roll numbers if they exist
+    final existingRollNumbers = Map<int, int>.from(_rollNumbers);
+
     _rollNumbers.clear();
     _usedRollNumbers.clear();
 
+    // First, restore existing roll numbers for students that still exist
     for (int i = 1; i <= numberOfStudents; i++) {
-      int rollNumber;
-      do {
-        rollNumber = _random.nextInt(40) + 1; // 1-40
-      } while (_usedRollNumbers.contains(rollNumber));
+      if (existingRollNumbers.containsKey(i)) {
+        _rollNumbers[i] = existingRollNumbers[i]!;
+        _usedRollNumbers.add(existingRollNumbers[i]!);
+      }
+    }
 
-      _rollNumbers[i] = rollNumber;
-      _usedRollNumbers.add(rollNumber);
+    // Then assign new roll numbers for any missing students
+    for (int i = 1; i <= numberOfStudents; i++) {
+      if (!_rollNumbers.containsKey(i)) {
+        int rollNumber;
+        do {
+          rollNumber = _random.nextInt(40) + 1; // 1-40
+        } while (_usedRollNumbers.contains(rollNumber));
+
+        _rollNumbers[i] = rollNumber;
+        _usedRollNumbers.add(rollNumber);
+      }
     }
   }
 
@@ -74,6 +88,31 @@ class _QuizScreenState extends State<QuizScreen> {
       // Update the roll number
       _rollNumbers[studentNumber] = newRollNumber;
       _usedRollNumbers.add(newRollNumber);
+    });
+  }
+
+  void _updateStudentCount(int newCount) {
+    setState(() {
+      final oldCount = numberOfStudents;
+      numberOfStudents = newCount;
+
+      // If increasing student count, add new students
+      if (newCount > oldCount) {
+        for (int i = oldCount + 1; i <= newCount; i++) {
+          _quizzes[i] = null;
+          _isGeneratingQuiz[i] = false;
+        }
+        _assignRollNumbers(); // Reassign to include new students
+      }
+      // If decreasing student count, clean up removed students
+      else if (newCount < oldCount) {
+        for (int i = newCount + 1; i <= oldCount; i++) {
+          _usedRollNumbers.remove(_rollNumbers[i]);
+          _rollNumbers.remove(i);
+          _quizzes.remove(i);
+          _isGeneratingQuiz.remove(i);
+        }
+      }
     });
   }
 
@@ -176,9 +215,52 @@ class _QuizScreenState extends State<QuizScreen> {
             ),
           ),
           const Spacer(),
-          Text(
-            '$numberOfStudents Students',
-            style: const TextStyle(color: Colors.white70, fontSize: 16),
+          // Student count selector
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white.withOpacity(0.3)),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Students:',
+                  style: TextStyle(color: Colors.white70, fontSize: 14),
+                ),
+                const SizedBox(width: 8),
+                DropdownButton<int>(
+                  value: numberOfStudents,
+                  dropdownColor: Colors.grey[800],
+                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                  underline: Container(),
+                  icon: const Icon(
+                    Icons.arrow_drop_down,
+                    color: Colors.white70,
+                  ),
+                  items:
+                      [1, 2, 3, 4].map((count) {
+                        return DropdownMenuItem<int>(
+                          value: count,
+                          child: Text(
+                            '$count',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                  onChanged: (value) {
+                    if (value != null) {
+                      _updateStudentCount(value);
+                    }
+                  },
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -359,17 +441,42 @@ class _QuizScreenState extends State<QuizScreen> {
   Widget _buildQuizGrid() {
     return LayoutBuilder(
       builder: (context, constraints) {
-        // More responsive breakpoints
+        // Handle single student case with centered layout
+        if (numberOfStudents == 1) {
+          return AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            child: Center(
+              key: ValueKey('single-student'),
+              child: Container(
+                constraints: BoxConstraints(
+                  maxWidth: 600,
+                  maxHeight: constraints.maxHeight * 0.9,
+                ),
+                padding: const EdgeInsets.all(16.0),
+                child: QuizPanel(
+                  rollNumber: _rollNumbers[1]!,
+                  panelNumber: 1,
+                  quiz: _quizzes[1],
+                  onQuizUpdated: (quiz) => _onQuizUpdated(1, quiz),
+                  isLoading: _isGeneratingQuiz[1] ?? false,
+                  onRollNumberRefresh: () => _refreshRollNumber(1),
+                ),
+              ),
+            ),
+          );
+        }
+
+        // Multiple students grid layout
         int crossAxisCount;
         double aspectRatio;
 
         if (constraints.maxWidth > 1400) {
           // Large desktop screens
-          crossAxisCount = 4;
+          crossAxisCount = numberOfStudents == 4 ? 4 : numberOfStudents;
           aspectRatio = 0.85;
         } else if (constraints.maxWidth > 1000) {
           // Medium desktop screens
-          crossAxisCount = 4;
+          crossAxisCount = numberOfStudents == 4 ? 4 : numberOfStudents;
           aspectRatio = 0.75;
         } else if (constraints.maxWidth > 700) {
           // Tablet landscape
@@ -385,26 +492,42 @@ class _QuizScreenState extends State<QuizScreen> {
           aspectRatio = 0.6;
         }
 
-        return GridView.builder(
-          padding: const EdgeInsets.all(8.0),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: crossAxisCount,
-            childAspectRatio: aspectRatio,
-            crossAxisSpacing: 8,
-            mainAxisSpacing: 8,
-          ),
-          itemCount: numberOfStudents,
-          itemBuilder: (context, index) {
-            final studentNumber = index + 1;
-            return QuizPanel(
-              rollNumber: _rollNumbers[studentNumber]!,
-              panelNumber: studentNumber,
-              quiz: _quizzes[studentNumber],
-              onQuizUpdated: (quiz) => _onQuizUpdated(studentNumber, quiz),
-              isLoading: _isGeneratingQuiz[studentNumber] ?? false,
-              onRollNumberRefresh: () => _refreshRollNumber(studentNumber),
+        return AnimatedSwitcher(
+          duration: const Duration(milliseconds: 400),
+          switchInCurve: Curves.easeInOut,
+          switchOutCurve: Curves.easeInOut,
+          transitionBuilder: (Widget child, Animation<double> animation) {
+            return FadeTransition(
+              opacity: animation,
+              child: ScaleTransition(scale: animation, child: child),
             );
           },
+          child: GridView.builder(
+            key: ValueKey('grid-$numberOfStudents'),
+            padding: const EdgeInsets.all(8.0),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: crossAxisCount,
+              childAspectRatio: aspectRatio,
+              crossAxisSpacing: 8,
+              mainAxisSpacing: 8,
+            ),
+            itemCount: numberOfStudents,
+            itemBuilder: (context, index) {
+              final studentNumber = index + 1;
+              return AnimatedContainer(
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeInOut,
+                child: QuizPanel(
+                  rollNumber: _rollNumbers[studentNumber]!,
+                  panelNumber: studentNumber,
+                  quiz: _quizzes[studentNumber],
+                  onQuizUpdated: (quiz) => _onQuizUpdated(studentNumber, quiz),
+                  isLoading: _isGeneratingQuiz[studentNumber] ?? false,
+                  onRollNumberRefresh: () => _refreshRollNumber(studentNumber),
+                ),
+              );
+            },
+          ),
         );
       },
     );
