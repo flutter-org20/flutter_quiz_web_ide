@@ -39,6 +39,15 @@ class _QuestionWidgetState extends State<QuestionWidget> {
         widget.onAnswerChanged([_textController.text]);
       }
     });
+
+    // Add focus listener for automatic virtual keyboard
+    _textFocus.addListener(() {
+      if (widget.question.type == QuestionType.fillInTheBlank) {
+        setState(() {
+          _showVirtualKeyboard = _textFocus.hasFocus;
+        });
+      }
+    });
   }
 
   @override
@@ -52,29 +61,38 @@ class _QuestionWidgetState extends State<QuestionWidget> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        return Card(
-          margin: EdgeInsets.all(constraints.maxWidth < 300 ? 4.0 : 8.0),
-          child: Padding(
-            padding: EdgeInsets.all(constraints.maxWidth < 300 ? 12.0 : 16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.question.questionText,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 16),
-                _buildQuestionInput(),
-                if (widget.showCorrectAnswer && widget.isAnswered) ...[
-                  const SizedBox(height: 12),
-                  _buildFeedback(),
+        return GestureDetector(
+          onTap: () {
+            // Dismiss virtual keyboard when tapping outside
+            if (widget.question.type == QuestionType.fillInTheBlank &&
+                _showVirtualKeyboard) {
+              _textFocus.unfocus();
+            }
+          },
+          child: Card(
+            margin: EdgeInsets.all(constraints.maxWidth < 300 ? 4.0 : 8.0),
+            child: Padding(
+              padding: EdgeInsets.all(constraints.maxWidth < 300 ? 12.0 : 16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.question.questionText,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 16),
+                  _buildQuestionInput(),
+                  if (widget.showCorrectAnswer && widget.isAnswered) ...[
+                    const SizedBox(height: 12),
+                    _buildFeedback(),
+                  ],
+                  if (widget.question.type == QuestionType.fillInTheBlank &&
+                      _showVirtualKeyboard) ...[
+                    const SizedBox(height: 12),
+                    _buildSimpleKeyboard(),
+                  ],
                 ],
-                if (widget.question.type == QuestionType.fillInTheBlank &&
-                    _showVirtualKeyboard) ...[
-                  const SizedBox(height: 12),
-                  _buildSimpleKeyboard(),
-                ],
-              ],
+              ),
             ),
           ),
         );
@@ -170,7 +188,7 @@ class _QuestionWidgetState extends State<QuestionWidget> {
                               },
                     ),
           );
-        }).toList(),
+        }),
       ],
     );
   }
@@ -253,8 +271,12 @@ class _QuestionWidgetState extends State<QuestionWidget> {
           controller: _textController,
           focusNode: _textFocus,
           enabled: !widget.isAnswered,
+          readOnly: true, // Disable physical keyboard input
+          showCursor: true, // Still show cursor for user feedback
+          enableInteractiveSelection:
+              false, // Disable text selection to prevent copy/paste
           decoration: InputDecoration(
-            hintText: 'Enter your answer...',
+            hintText: 'Tap to enter your answer...',
             filled: fillColor != null,
             fillColor: fillColor,
             border: OutlineInputBorder(
@@ -268,24 +290,16 @@ class _QuestionWidgetState extends State<QuestionWidget> {
                 color: borderColor ?? Theme.of(context).primaryColor,
               ),
             ),
-            suffixIcon: IconButton(
-              icon: Icon(
-                _showVirtualKeyboard ? Icons.keyboard_hide : Icons.keyboard,
-              ),
-              onPressed: () {
-                setState(() {
-                  _showVirtualKeyboard = !_showVirtualKeyboard;
-                });
-                if (_showVirtualKeyboard) {
-                  _textFocus.unfocus();
-                }
-              },
-            ),
+            suffixIcon:
+                _showVirtualKeyboard
+                    ? Icon(Icons.keyboard, color: Colors.blue[400])
+                    : Icon(Icons.touch_app, color: Colors.grey[600]),
           ),
           onTap: () {
-            setState(() {
-              _showVirtualKeyboard = false;
-            });
+            // Request focus to show virtual keyboard
+            if (!widget.isAnswered) {
+              _textFocus.requestFocus();
+            }
           },
         ),
       ],
@@ -308,17 +322,15 @@ class _QuestionWidgetState extends State<QuestionWidget> {
       ),
       child: Column(
         children: [
-          ...keys
-              .map(
-                (row) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: row.map((key) => _buildKey(key)).toList(),
-                  ),
-                ),
-              )
-              .toList(),
+          ...keys.map(
+            (row) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: row.map((key) => _buildKey(key)).toList(),
+              ),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 2),
             child: Row(
@@ -326,6 +338,7 @@ class _QuestionWidgetState extends State<QuestionWidget> {
               children: [
                 _buildKey('Space', isWide: true),
                 _buildKey('⌫', isBackspace: true),
+                _buildKey('Done', isDone: true, isWide: true),
               ],
             ),
           ),
@@ -338,15 +351,22 @@ class _QuestionWidgetState extends State<QuestionWidget> {
     String key, {
     bool isWide = false,
     bool isBackspace = false,
+    bool isDone = false,
   }) {
     return Expanded(
-      flex: isWide ? 3 : 1,
+      flex: isWide ? 2 : 1,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 1),
         child: ElevatedButton(
-          onPressed: () => _handleKeyPress(key, isBackspace: isBackspace),
+          onPressed: () {
+            if (isDone) {
+              _textFocus.unfocus(); // Dismiss keyboard
+            } else {
+              _handleKeyPress(key, isBackspace: isBackspace);
+            }
+          },
           style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.grey[700],
+            backgroundColor: isDone ? Colors.blue[600] : Colors.grey[700],
             foregroundColor: Colors.white,
             padding: const EdgeInsets.symmetric(vertical: 8),
             minimumSize: const Size(0, 36),
@@ -376,9 +396,7 @@ class _QuestionWidgetState extends State<QuestionWidget> {
       }
     } else if (key == 'Space') {
       final newText =
-          currentText.substring(0, currentPosition) +
-          ' ' +
-          currentText.substring(currentPosition);
+          '${currentText.substring(0, currentPosition)} ${currentText.substring(currentPosition)}';
       _textController.text = newText;
       _textController.selection = TextSelection.fromPosition(
         TextPosition(offset: currentPosition + 1),
