@@ -47,12 +47,34 @@ class _QuizScreenState extends State<QuizScreen> {
     for (int i = 1; i <= numberOfStudents; i++) {
       int rollNumber;
       do {
-        rollNumber = _random.nextInt(9999) + 1; // 1-9999
+        rollNumber = _random.nextInt(40) + 1; // 1-40
       } while (_usedRollNumbers.contains(rollNumber));
 
       _rollNumbers[i] = rollNumber;
       _usedRollNumbers.add(rollNumber);
     }
+  }
+
+  void _refreshRollNumber(int studentNumber) {
+    setState(() {
+      // Remove the current roll number from used set
+      _usedRollNumbers.remove(_rollNumbers[studentNumber]);
+
+      // Generate a new unique roll number
+      int newRollNumber;
+      int attempts = 0;
+      do {
+        newRollNumber = _random.nextInt(40) + 1; // 1-40
+        attempts++;
+        // If all numbers are used (unlikely with 40 numbers for 4 students),
+        // allow duplicates after 50 attempts
+        if (attempts > 50) break;
+      } while (_usedRollNumbers.contains(newRollNumber));
+
+      // Update the roll number
+      _rollNumbers[studentNumber] = newRollNumber;
+      _usedRollNumbers.add(newRollNumber);
+    });
   }
 
   void _initializeQuizzes() {
@@ -155,7 +177,7 @@ class _QuizScreenState extends State<QuizScreen> {
           ),
           const Spacer(),
           Text(
-            '${numberOfStudents} Students',
+            '$numberOfStudents Students',
             style: const TextStyle(color: Colors.white70, fontSize: 16),
           ),
         ],
@@ -248,7 +270,7 @@ class _QuizScreenState extends State<QuizScreen> {
 
   Widget _buildTopicDropdown() {
     return DropdownButtonFormField<String>(
-      value: _selectedTopic,
+      initialValue: _selectedTopic,
       decoration: const InputDecoration(
         labelText: 'Topic',
         border: OutlineInputBorder(),
@@ -269,7 +291,7 @@ class _QuizScreenState extends State<QuizScreen> {
 
   Widget _buildDifficultyDropdown() {
     return DropdownButtonFormField<String>(
-      value: _selectedDifficulty,
+      initialValue: _selectedDifficulty,
       decoration: const InputDecoration(
         labelText: 'Difficulty',
         border: OutlineInputBorder(),
@@ -380,6 +402,7 @@ class _QuizScreenState extends State<QuizScreen> {
               quiz: _quizzes[studentNumber],
               onQuizUpdated: (quiz) => _onQuizUpdated(studentNumber, quiz),
               isLoading: _isGeneratingQuiz[studentNumber] ?? false,
+              onRollNumberRefresh: () => _refreshRollNumber(studentNumber),
             );
           },
         );

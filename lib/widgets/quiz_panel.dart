@@ -9,6 +9,7 @@ class QuizPanel extends StatefulWidget {
   final Quiz? quiz;
   final Function(Quiz) onQuizUpdated;
   final bool isLoading;
+  final VoidCallback? onRollNumberRefresh;
 
   const QuizPanel({
     super.key,
@@ -17,6 +18,7 @@ class QuizPanel extends StatefulWidget {
     this.quiz,
     required this.onQuizUpdated,
     this.isLoading = false,
+    this.onRollNumberRefresh,
   });
 
   @override
@@ -142,12 +144,30 @@ class _QuizPanelState extends State<QuizPanel> {
           Icon(Icons.quiz, color: Colors.blue[400]),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(
-              'Quiz ${widget.panelNumber} - Roll No: ${widget.rollNumber}',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-              overflow: TextOverflow.ellipsis,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300),
+              child: Text(
+                'Quiz ${widget.panelNumber} - Roll No: ${widget.rollNumber}',
+                key: ValueKey(widget.rollNumber), // Key for animation
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ),
+          // Roll number refresh button
+          if (widget.onRollNumberRefresh != null)
+            Tooltip(
+              message: 'Refresh Roll Number',
+              child: IconButton(
+                icon: Icon(Icons.refresh, color: Colors.grey[400], size: 18),
+                onPressed: widget.onRollNumberRefresh,
+                splashRadius: 16,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              ),
+            ),
           if (widget.quiz != null && widget.quiz!.isCompleted) ...[
             const SizedBox(width: 8),
             Icon(Icons.check_circle, color: Colors.green[400]),
