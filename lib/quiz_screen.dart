@@ -91,6 +91,25 @@ class _QuizScreenState extends State<QuizScreen> {
     });
   }
 
+  void _shuffleRollNumbers() {
+    setState(() {
+      // Clear existing roll numbers completely for fresh shuffle
+      _rollNumbers.clear();
+      _usedRollNumbers.clear();
+
+      // Generate completely new random roll numbers for all current students
+      for (int i = 1; i <= numberOfStudents; i++) {
+        int rollNumber;
+        do {
+          rollNumber = _random.nextInt(40) + 1; // 1-40
+        } while (_usedRollNumbers.contains(rollNumber));
+
+        _rollNumbers[i] = rollNumber;
+        _usedRollNumbers.add(rollNumber);
+      }
+    });
+  }
+
   void _updateStudentCount(int newCount) {
     // Use a deferred update to avoid race conditions during widget disposal
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -332,7 +351,7 @@ class _QuizScreenState extends State<QuizScreen> {
               const SizedBox(width: 12),
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: _assignRollNumbers,
+                  onPressed: _shuffleRollNumbers,
                   icon: const Icon(Icons.shuffle),
                   label: const Text(
                     'Shuffle Roll Numbers',

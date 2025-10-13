@@ -61,38 +61,45 @@ class _QuestionWidgetState extends State<QuestionWidget> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        return GestureDetector(
-          onTap: () {
-            // Dismiss virtual keyboard when tapping outside
-            if (widget.question.type == QuestionType.fillInTheBlank &&
-                _showVirtualKeyboard) {
-              _textFocus.unfocus();
-            }
-          },
-          child: Card(
-            margin: EdgeInsets.all(constraints.maxWidth < 300 ? 4.0 : 8.0),
-            child: Padding(
-              padding: EdgeInsets.all(constraints.maxWidth < 300 ? 12.0 : 16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    widget.question.questionText,
-                    style: Theme.of(context).textTheme.titleMedium,
+        return Card(
+          margin: EdgeInsets.all(constraints.maxWidth < 300 ? 4.0 : 8.0),
+          child: Padding(
+            padding: EdgeInsets.all(constraints.maxWidth < 300 ? 12.0 : 16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Question content area - tappable to dismiss keyboard
+                GestureDetector(
+                  onTap: () {
+                    // Dismiss virtual keyboard when tapping outside the keyboard area
+                    if (widget.question.type == QuestionType.fillInTheBlank &&
+                        _showVirtualKeyboard) {
+                      _textFocus.unfocus();
+                    }
+                  },
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.question.questionText,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 16),
+                      _buildQuestionInput(),
+                      if (widget.showCorrectAnswer && widget.isAnswered) ...[
+                        const SizedBox(height: 12),
+                        _buildFeedback(),
+                      ],
+                    ],
                   ),
-                  const SizedBox(height: 16),
-                  _buildQuestionInput(),
-                  if (widget.showCorrectAnswer && widget.isAnswered) ...[
-                    const SizedBox(height: 12),
-                    _buildFeedback(),
-                  ],
-                  if (widget.question.type == QuestionType.fillInTheBlank &&
-                      _showVirtualKeyboard) ...[
-                    const SizedBox(height: 12),
-                    _buildSimpleKeyboard(),
-                  ],
+                ),
+                // Virtual keyboard area - NOT tappable for dismissal
+                if (widget.question.type == QuestionType.fillInTheBlank &&
+                    _showVirtualKeyboard) ...[
+                  const SizedBox(height: 12),
+                  _buildSimpleKeyboard(),
                 ],
-              ),
+              ],
             ),
           ),
         );
@@ -357,23 +364,27 @@ class _QuestionWidgetState extends State<QuestionWidget> {
       flex: isWide ? 2 : 1,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 1),
-        child: ElevatedButton(
-          onPressed: () {
+        child: GestureDetector(
+          // Prevent tap events from bubbling up to parent GestureDetector
+          onTap: () {
             if (isDone) {
               _textFocus.unfocus(); // Dismiss keyboard
             } else {
               _handleKeyPress(key, isBackspace: isBackspace);
             }
           },
-          style: ElevatedButton.styleFrom(
-            backgroundColor: isDone ? Colors.blue[600] : Colors.grey[700],
-            foregroundColor: Colors.white,
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            minimumSize: const Size(0, 36),
-          ),
-          child: Text(
-            key == 'Space' ? 'Space' : key,
-            style: const TextStyle(fontSize: 12),
+          child: Container(
+            height: 36,
+            decoration: BoxDecoration(
+              color: isDone ? Colors.blue[600] : Colors.grey[700],
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Center(
+              child: Text(
+                key == 'Space' ? 'Space' : key,
+                style: const TextStyle(fontSize: 12, color: Colors.white),
+              ),
+            ),
           ),
         ),
       ),
@@ -381,6 +392,11 @@ class _QuestionWidgetState extends State<QuestionWidget> {
   }
 
   void _handleKeyPress(String key, {bool isBackspace = false}) {
+    // Ensure focus remains on the text field during typing
+    if (!_textFocus.hasFocus) {
+      _textFocus.requestFocus();
+    }
+
     final currentText = _textController.text;
     final currentPosition = _textController.selection.start;
 
