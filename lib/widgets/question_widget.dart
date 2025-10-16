@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/quiz.dart';
+import 'virtual_keyboard.dart';
 
 class QuestionWidget extends StatefulWidget {
   final Question question;
@@ -24,7 +25,6 @@ class QuestionWidget extends StatefulWidget {
 class _QuestionWidgetState extends State<QuestionWidget> {
   final TextEditingController _textController = TextEditingController();
   final FocusNode _textFocus = FocusNode();
-  bool _showVirtualKeyboard = false;
 
   @override
   void initState() {
@@ -37,15 +37,8 @@ class _QuestionWidgetState extends State<QuestionWidget> {
     _textController.addListener(() {
       if (widget.question.type == QuestionType.fillInTheBlank) {
         widget.onAnswerChanged([_textController.text]);
-      }
-    });
-
-    // Add focus listener for automatic virtual keyboard
-    _textFocus.addListener(() {
-      if (widget.question.type == QuestionType.fillInTheBlank) {
-        setState(() {
-          _showVirtualKeyboard = _textFocus.hasFocus;
-        });
+        // Trigger rebuild to update the check icon color
+        setState(() {});
       }
     });
   }
@@ -61,47 +54,45 @@ class _QuestionWidgetState extends State<QuestionWidget> {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        return Card(
-          margin: EdgeInsets.all(constraints.maxWidth < 300 ? 4.0 : 8.0),
-          child: Padding(
-            padding: EdgeInsets.all(constraints.maxWidth < 300 ? 12.0 : 16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Question content area - tappable to dismiss keyboard
-                GestureDetector(
-                  onTap: () {
-                    // Dismiss virtual keyboard when tapping outside the keyboard area
-                    if (widget.question.type == QuestionType.fillInTheBlank &&
-                        _showVirtualKeyboard) {
-                      _textFocus.unfocus();
-                    }
-                  },
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.question.questionText,
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: 16),
-                      _buildQuestionInput(),
-                      if (widget.showCorrectAnswer && widget.isAnswered) ...[
-                        const SizedBox(height: 12),
-                        _buildFeedback(),
-                      ],
-                    ],
-                  ),
+        final bool isFillInBlank =
+            widget.question.type == QuestionType.fillInTheBlank;
+
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Main question card
+            Card(
+              margin: EdgeInsets.all(constraints.maxWidth < 300 ? 4.0 : 8.0),
+              child: Padding(
+                padding: EdgeInsets.all(
+                  constraints.maxWidth < 300 ? 12.0 : 16.0,
                 ),
-                // Virtual keyboard area - NOT tappable for dismissal
-                if (widget.question.type == QuestionType.fillInTheBlank &&
-                    _showVirtualKeyboard) ...[
-                  const SizedBox(height: 12),
-                  _buildSimpleKeyboard(),
-                ],
-              ],
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      widget.question.questionText,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 16),
+                    _buildQuestionInput(),
+                    if (widget.showCorrectAnswer && widget.isAnswered) ...[
+                      const SizedBox(height: 12),
+                      _buildFeedback(),
+                    ],
+                  ],
+                ),
+              ),
             ),
-          ),
+            // Virtual keyboard - always show for fill-in-the-blank questions
+            if (isFillInBlank && !widget.isAnswered) ...[
+              const SizedBox(height: 8),
+              IntrinsicHeight(
+                child: VirtualKeyboard(controller: _textController),
+              ),
+            ],
+          ],
         );
       },
     );
@@ -202,6 +193,7 @@ class _QuestionWidgetState extends State<QuestionWidget> {
 
   Widget _buildTrueFalse() {
     return Row(
+      mainAxisSize: MainAxisSize.min,
       children:
           widget.question.options.map((option) {
             final isSelected = widget.userAnswers.contains(option);
@@ -220,7 +212,7 @@ class _QuestionWidgetState extends State<QuestionWidget> {
               }
             }
 
-            return Expanded(
+            return Flexible(
               child: Container(
                 margin: const EdgeInsets.symmetric(horizontal: 8),
                 decoration: BoxDecoration(
@@ -272,18 +264,18 @@ class _QuestionWidgetState extends State<QuestionWidget> {
       }
     }
 
+    // Determine check icon color based on text content
+    final bool hasText = _textController.text.isNotEmpty;
+    final Color checkIconColor = hasText ? Colors.green : Colors.grey;
+
     return Column(
       children: [
         TextFormField(
           controller: _textController,
           focusNode: _textFocus,
           enabled: !widget.isAnswered,
-          readOnly: true, // Disable physical keyboard input
-          showCursor: true, // Still show cursor for user feedback
-          enableInteractiveSelection:
-              false, // Disable text selection to prevent copy/paste
           decoration: InputDecoration(
-            hintText: 'Tap to enter your answer...',
+            hintText: 'Type your answer using the keyboard below...',
             filled: fillColor != null,
             fillColor: fillColor,
             border: OutlineInputBorder(
@@ -298,12 +290,33 @@ class _QuestionWidgetState extends State<QuestionWidget> {
               ),
             ),
             suffixIcon:
-                _showVirtualKeyboard
-                    ? Icon(Icons.keyboard, color: Colors.blue[400])
-                    : Icon(Icons.touch_app, color: Colors.grey[600]),
+                !widget.isAnswered
+                    ? Tooltip(
+                      message: 'Answer saved',
+                      triggerMode: TooltipTriggerMode.tap,
+                      child: GestureDetector(
+                        onTap:
+                            hasText
+                                ? () {
+                                  // Tooltip will show automatically on tap due to TooltipTriggerMode.tap
+                                  // The icon stays green after being tapped
+                                }
+                                : null,
+                        child: Icon(Icons.check_circle, color: checkIconColor),
+                      ),
+                    )
+                    : Icon(
+                      Icons.check_circle,
+                      color:
+                          widget.showCorrectAnswer && widget.isAnswered
+                              ? (borderColor == Colors.green
+                                  ? Colors.green
+                                  : Colors.red)
+                              : Colors.grey[600],
+                    ),
           ),
           onTap: () {
-            // Request focus to show virtual keyboard
+            // Keep focus for cursor positioning
             if (!widget.isAnswered) {
               _textFocus.requestFocus();
             }
@@ -311,122 +324,6 @@ class _QuestionWidgetState extends State<QuestionWidget> {
         ),
       ],
     );
-  }
-
-  Widget _buildSimpleKeyboard() {
-    const keys = [
-      ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
-      ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'],
-      ['Z', 'X', 'C', 'V', 'B', 'N', 'M'],
-      ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
-    ];
-
-    return Container(
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: Colors.grey[800],
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        children: [
-          ...keys.map(
-            (row) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: row.map((key) => _buildKey(key)).toList(),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 2),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildKey('Space', isWide: true),
-                _buildKey('⌫', isBackspace: true),
-                _buildKey('Done', isDone: true, isWide: true),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildKey(
-    String key, {
-    bool isWide = false,
-    bool isBackspace = false,
-    bool isDone = false,
-  }) {
-    return Expanded(
-      flex: isWide ? 2 : 1,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 1),
-        child: GestureDetector(
-          // Prevent tap events from bubbling up to parent GestureDetector
-          onTap: () {
-            if (isDone) {
-              _textFocus.unfocus(); // Dismiss keyboard
-            } else {
-              _handleKeyPress(key, isBackspace: isBackspace);
-            }
-          },
-          child: Container(
-            height: 36,
-            decoration: BoxDecoration(
-              color: isDone ? Colors.blue[600] : Colors.grey[700],
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: Center(
-              child: Text(
-                key == 'Space' ? 'Space' : key,
-                style: const TextStyle(fontSize: 12, color: Colors.white),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _handleKeyPress(String key, {bool isBackspace = false}) {
-    // Ensure focus remains on the text field during typing
-    if (!_textFocus.hasFocus) {
-      _textFocus.requestFocus();
-    }
-
-    final currentText = _textController.text;
-    final currentPosition = _textController.selection.start;
-
-    if (isBackspace) {
-      if (currentPosition > 0) {
-        final newText =
-            currentText.substring(0, currentPosition - 1) +
-            currentText.substring(currentPosition);
-        _textController.text = newText;
-        _textController.selection = TextSelection.fromPosition(
-          TextPosition(offset: currentPosition - 1),
-        );
-      }
-    } else if (key == 'Space') {
-      final newText =
-          '${currentText.substring(0, currentPosition)} ${currentText.substring(currentPosition)}';
-      _textController.text = newText;
-      _textController.selection = TextSelection.fromPosition(
-        TextPosition(offset: currentPosition + 1),
-      );
-    } else {
-      final newText =
-          currentText.substring(0, currentPosition) +
-          key +
-          currentText.substring(currentPosition);
-      _textController.text = newText;
-      _textController.selection = TextSelection.fromPosition(
-        TextPosition(offset: currentPosition + key.length),
-      );
-    }
   }
 
   Widget _buildFeedback() {

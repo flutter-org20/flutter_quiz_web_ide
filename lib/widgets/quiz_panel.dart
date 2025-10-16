@@ -3,6 +3,8 @@ import '../models/quiz.dart';
 import '../widgets/question_widget.dart';
 import '../services/quiz_service.dart';
 
+enum QuestionStatus { unanswered, correct, wrong }
+
 class QuizPanel extends StatefulWidget {
   final int rollNumber;
   final int panelNumber;
@@ -105,6 +107,45 @@ class _QuizPanelState extends State<QuizPanel> {
     if (widget.quiz != null) {
       final resetQuiz = widget.quiz!.copyWith(answers: [], isCompleted: false);
       widget.onQuizUpdated(resetQuiz);
+    }
+  }
+
+  QuestionStatus _getQuestionStatus(int index) {
+    final questionId = widget.quiz!.questions[index].id;
+
+    // If quiz is not completed, use the old logic (unanswered vs answered)
+    if (!widget.quiz!.isCompleted) {
+      final hasAnswer = _userAnswers[questionId]?.isNotEmpty ?? false;
+      return hasAnswer ? QuestionStatus.correct : QuestionStatus.unanswered;
+    }
+
+    // If quiz is completed, check the actual correctness
+    final answer = widget.quiz!.answers.firstWhere(
+      (answer) => answer.questionId == questionId,
+      orElse:
+          () => QuizAnswer(
+            questionId: questionId,
+            selectedAnswers: [],
+            isCorrect: false,
+            answeredAt: DateTime.now(),
+          ),
+    );
+
+    if (answer.selectedAnswers.isEmpty) {
+      return QuestionStatus.unanswered;
+    }
+
+    return answer.isCorrect ? QuestionStatus.correct : QuestionStatus.wrong;
+  }
+
+  Color _getIndicatorColor(QuestionStatus status) {
+    switch (status) {
+      case QuestionStatus.correct:
+        return Colors.green[600]!;
+      case QuestionStatus.wrong:
+        return Colors.red[600]!;
+      case QuestionStatus.unanswered:
+        return Colors.grey[600]!;
     }
   }
 
@@ -296,10 +337,7 @@ class _QuizPanelState extends State<QuizPanel> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: List.generate(widget.quiz!.questions.length, (index) {
-                  final hasAnswer =
-                      _userAnswers[widget.quiz!.questions[index].id]
-                          ?.isNotEmpty ??
-                      false;
+                  final questionStatus = _getQuestionStatus(index);
                   return GestureDetector(
                     onTap: () => setState(() => _currentQuestionIndex = index),
                     child: Container(
@@ -310,9 +348,7 @@ class _QuizPanelState extends State<QuizPanel> {
                         color:
                             index == _currentQuestionIndex
                                 ? Colors.blue[600]
-                                : hasAnswer
-                                ? Colors.green[600]
-                                : Colors.grey[600],
+                                : _getIndicatorColor(questionStatus),
                         borderRadius: BorderRadius.circular(16),
                       ),
                       child: Center(
