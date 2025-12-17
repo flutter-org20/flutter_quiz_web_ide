@@ -44,7 +44,7 @@ class _QuizPanelState extends State<QuizPanel> {
     super.didUpdateWidget(oldWidget);
     if (widget.quiz != oldWidget.quiz) {
       _initializeAnswers();
-      _showAnswers = false;
+      _showAnswers = true;
       _currentQuestionIndex = 0;
     }
   }
