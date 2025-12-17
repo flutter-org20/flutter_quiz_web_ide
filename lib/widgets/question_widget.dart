@@ -245,6 +245,18 @@ class _QuestionWidgetState extends State<QuestionWidget> {
     );
   }
 
+  @override
+  void didUpdateWidget(covariant QuestionWidget oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    // Check if a completely different question is being loaded
+    if (oldWidget.question != widget.question) {
+      _textController.text = "";
+      _textFocus.unfocus();
+      setState(() {});
+    }
+  }
+
   Widget _buildFillInTheBlank() {
     Color? borderColor;
     Color? fillColor;
